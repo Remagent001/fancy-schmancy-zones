@@ -9,15 +9,16 @@ namespace FancySchmancyZones;
 /// </summary>
 public sealed class KeyboardHook : IDisposable
 {
-    public delegate bool KeyDownHandler(int vkCode);
+    /// <summary>Handle a key event. Return true to swallow the key.</summary>
+    public delegate bool KeyHandler(int vkCode, bool keyDown);
 
-    private readonly KeyDownHandler _onKeyDown;
+    private readonly KeyHandler _onKey;
     private readonly LowLevelKeyboardProc _proc; // keep the delegate alive for the hook's lifetime
     private IntPtr _hook = IntPtr.Zero;
 
-    public KeyboardHook(KeyDownHandler onKeyDown)
+    public KeyboardHook(KeyHandler onKey)
     {
-        _onKeyDown = onKeyDown;
+        _onKey = onKey;
         _proc = Callback;
         _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, GetModuleHandle(null), 0);
     }
@@ -29,10 +30,12 @@ public sealed class KeyboardHook : IDisposable
         if (nCode >= 0)
         {
             int msg = wParam.ToInt32();
-            if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+            bool down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+            bool up = msg == WM_KEYUP || msg == WM_SYSKEYUP;
+            if (down || up)
             {
                 int vk = Marshal.ReadInt32(lParam); // KBDLLHOOKSTRUCT.vkCode is the first field
-                if (_onKeyDown(vk)) return (IntPtr)1; // handled -> swallow
+                if (_onKey(vk, down)) return (IntPtr)1; // handled -> swallow
             }
         }
         return CallNextHookEx(_hook, nCode, wParam, lParam);
@@ -49,7 +52,7 @@ public sealed class KeyboardHook : IDisposable
     private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
     private const int WH_KEYBOARD_LL = 13;
-    private const int WM_KEYDOWN = 0x0100, WM_SYSKEYDOWN = 0x0104;
+    private const int WM_KEYDOWN = 0x0100, WM_KEYUP = 0x0101, WM_SYSKEYDOWN = 0x0104, WM_SYSKEYUP = 0x0105;
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc proc, IntPtr hMod, uint threadId);

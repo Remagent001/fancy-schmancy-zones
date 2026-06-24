@@ -49,18 +49,17 @@ internal sealed class TrayContext : ApplicationContext
         _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) _menu.Show(Cursor.Position); };
         RebuildMenu();
 
-        _sync.CreateControl(); // realize a handle so BeginInvoke works
+        _ = _sync.Handle; // force the handle to exist so BeginInvoke actually works
 
-        // Low-level keyboard hook: sees the chords directly, even when other utilities
+        // Low-level keyboard hook: sees keys directly, even when other utilities
         // have grabbed combos via RegisterHotKey.
-        _hook = new KeyboardHook(OnKeyDown);
+        _hook = new KeyboardHook(OnKey);
 
-        // Record state (handy for diagnostics / confirming on this PC).
         try
         {
             Directory.CreateDirectory(AppState.Dir);
             File.WriteAllText(Path.Combine(AppState.Dir, "hotkeys.txt"),
-                $"Listener installed: {_hook.Installed}\nLock: {_lockKeyLabel}\nNext: {_nextKeyLabel}\nPrev: {_prevKeyLabel}\n");
+                $"Listener installed: {_hook.Installed}\nLock: {_lockKeyLabel}\nNext: {_nextKeyLabel}\nPrev: {_prevKeyLabel}\nFlip (easy): double-tap Ctrl\n");
         }
         catch { }
 
@@ -68,29 +67,83 @@ internal sealed class TrayContext : ApplicationContext
             Notify("Hotkeys unavailable", "Couldn't start the keyboard listener — use the tray icon to switch layouts.");
         else
             Notify("Fancy Schmancy Zones is running",
-                $"Lock: {_lockKeyLabel}\nNext: {_nextKeyLabel}\nPrev: {_prevKeyLabel}");
+                $"Flip layouts: double-tap Ctrl.\nLock: {_lockKeyLabel} · Next: {_nextKeyLabel} · Prev: {_prevKeyLabel}");
     }
 
+    // --- Double-tap Ctrl detection state ---
+    private const long DoubleTapMs = 400;   // max gap between the two Ctrl taps
+    private long _lastCtrlTapTick;
+    private bool _ctrlHeld;
+    private bool _comboDuringCtrl;          // was Ctrl part of a combo (so it's not a clean tap)?
+    private bool _diagWritten;
+
     /// <summary>
-    /// Called from the keyboard hook on every key-down. If it matches a chord, run the
-    /// action on the UI thread and swallow the key. Must return fast (no heavy work here).
+    /// Called from the keyboard hook for every key down/up. Detects:
+    ///   • double-tap of Ctrl  -> flip to next layout (easy, hard to block)
+    ///   • Ctrl+Alt+Shift+L/Q/W chords -> lock / next / previous
+    /// Must return fast; heavy work is marshalled to the UI thread.
     /// </summary>
-    private bool OnKeyDown(int vk)
+    private bool OnKey(int vk, bool down)
     {
-        if (!(KeyboardHook.IsDown(VK_CONTROL) && KeyboardHook.IsDown(VK_MENU) && KeyboardHook.IsDown(VK_SHIFT)))
-            return false;
-
-        Action? action = (uint)vk switch
+        // First key we ever see proves the listener is actually receiving input on this PC.
+        if (!_diagWritten)
         {
-            VK_L => LockCurrent,
-            VK_Q => () => Cycle(+1),
-            VK_W => () => Cycle(-1),
-            _ => null
-        };
-        if (action == null) return false;
+            _diagWritten = true;
+            try { File.WriteAllText(Path.Combine(AppState.Dir, "diag.txt"), "keyboard listener IS receiving keys\n"); } catch { }
+        }
 
+        bool isCtrl = vk == VK_LCONTROL || vk == VK_RCONTROL;
+
+        if (isCtrl)
+        {
+            if (down)
+            {
+                if (!_ctrlHeld) { _ctrlHeld = true; _comboDuringCtrl = false; } // ignore auto-repeat
+            }
+            else // Ctrl released — a "tap" completes here
+            {
+                _ctrlHeld = false;
+                if (_comboDuringCtrl) { _lastCtrlTapTick = 0; } // it was a combo, not a clean tap
+                else
+                {
+                    long now = Environment.TickCount64;
+                    if (_lastCtrlTapTick != 0 && now - _lastCtrlTapTick <= DoubleTapMs)
+                    {
+                        _lastCtrlTapTick = 0;
+                        Run(() => Cycle(+1));   // double-tap! flip to next layout
+                    }
+                    else _lastCtrlTapTick = now;
+                }
+            }
+            return false; // never swallow Ctrl — it's used everywhere
+        }
+
+        // Any non-Ctrl key:
+        if (down)
+        {
+            if (_ctrlHeld) _comboDuringCtrl = true;   // Ctrl is being used in a combo
+            _lastCtrlTapTick = 0;                     // breaks any pending double-tap
+
+            if (KeyboardHook.IsDown(VK_CONTROL) && KeyboardHook.IsDown(VK_MENU) && KeyboardHook.IsDown(VK_SHIFT))
+            {
+                Action? action = (uint)vk switch
+                {
+                    VK_L => LockCurrent,
+                    VK_Q => () => Cycle(+1),
+                    VK_W => () => Cycle(-1),
+                    _ => null
+                };
+                if (action != null) { Run(action); return true; } // swallow the chord
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Run an action on the UI thread (the hook callback runs on the same thread, but
+    /// we post it so the hook returns immediately and Windows never drops it).</summary>
+    private void Run(Action action)
+    {
         try { _sync.BeginInvoke(action); } catch { }
-        return true; // swallow so the chord doesn't also type or trigger elsewhere
     }
 
     // ---- Menu ----
@@ -133,7 +186,8 @@ internal sealed class TrayContext : ApplicationContext
         }
 
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(new ToolStripMenuItem($"Flip:  next {_nextKeyLabel}  ·  prev {_prevKeyLabel}") { Enabled = false });
+        menu.Items.Add(new ToolStripMenuItem("Flip layouts:  double-tap Ctrl") { Enabled = false });
+        menu.Items.Add(new ToolStripMenuItem($"   or  next {_nextKeyLabel}  ·  prev {_prevKeyLabel}") { Enabled = false });
         menu.Items.Add("How it works", null, (_, _) => ShowHelp());
         menu.Items.Add("Quit", null, (_, _) => Quit());
 
@@ -280,11 +334,11 @@ internal sealed class TrayContext : ApplicationContext
             $"2. Press {_lockKeyLabel} to LOCK that arrangement and give it a name.\n" +
             "3. Build as many locked layouts as you like.\n\n" +
             "FLIP BETWEEN LAYOUTS:\n" +
+            "   • Double-tap the Ctrl key  →  next layout (easiest)\n" +
             $"   • {_nextKeyLabel}  →  next locked layout\n" +
             $"   • {_prevKeyLabel}  →  previous locked layout\n\n" +
             "Flipping brings that layout's windows to their saved spots and to the front.\n" +
-            "Click the tray icon (left or right) to pick, rename, update, or delete layouts.\n\n" +
-            "These keys are also shown in the tray menu.",
+            "Click the tray icon (left or right) to pick, rename, update, or delete layouts.",
             "How it works — Fancy Schmancy Zones",
             MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
@@ -320,4 +374,5 @@ internal sealed class TrayContext : ApplicationContext
     // Virtual-key codes we watch for.
     private const uint VK_Q = 0x51, VK_L = 0x4C, VK_W = 0x57;
     private const int VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_MENU = 0x12; // MENU = Alt
+    private const int VK_LCONTROL = 0xA2, VK_RCONTROL = 0xA3;
 }

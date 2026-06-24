@@ -24,9 +24,10 @@ arrangement as one group you can toggle to.
 
 | Action | Keys |
 | --- | --- |
-| Lock current layout | `Ctrl + Alt + Shift + L` |
+| **Flip to next layout** (easiest) | **Double-tap `Ctrl`** |
 | Flip to next layout | `Ctrl + Alt + Shift + Q` |
 | Flip to previous layout | `Ctrl + Alt + Shift + W` |
+| Lock current layout | `Ctrl + Alt + Shift + L` |
 
 Hotkeys use a low-level keyboard listener so they keep working even when other
 utilities have claimed common shortcuts. You can also do everything by

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 — 2026-06-24
+
+- **Added: double-tap `Ctrl` to flip to the next layout** — an easy gesture that's hard for other
+  utilities to block.
+- **Fixed: hotkeys did nothing.** The internal helper that runs an action never had its window
+  handle created, so every keypress silently failed. Hotkeys (and double-tap) now work.
+- Tray menu and help updated to show the double-tap.
+
 ## 0.3.0 — 2026-06-23
 
 First public release.
