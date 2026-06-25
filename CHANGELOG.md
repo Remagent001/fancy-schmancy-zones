@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2 — 2026-06-25
+
+- **Fixed: app could hang/crash** (Windows "app hang") when saving a layout or flipping near a
+  busy app like Outlook. The global keyboard listener now runs on its own dedicated thread, so it
+  can never be blocked by window work — which was stalling keyboard input system-wide.
+- Added a crash/error safety net: unexpected errors are logged to
+  `%APPDATA%\FancySchmancyZones\crash.log` instead of closing the app.
+- Note: the `Ctrl+Alt+Shift+Q/W/L` combos may be intercepted by other keyboard utilities on some
+  PCs. **Double-tap Ctrl** (flip) is the reliable gesture; lock/manage are always on the tray menu.
+
 ## 0.3.1 — 2026-06-24
 
 - **Added: double-tap `Ctrl` to flip to the next layout** — an easy gesture that's hard for other

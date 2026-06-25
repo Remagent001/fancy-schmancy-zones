@@ -12,8 +12,24 @@ internal static class Program
         using var mutex = new Mutex(true, "FancySchmancyZones_SingleInstance", out bool isNew);
         if (!isNew) return;
 
+        // Don't let a stray error kill the app — log it and keep running.
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (_, e) => LogCrash(e.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => LogCrash(e.ExceptionObject as Exception);
+
         ApplicationConfiguration.Initialize();
         Application.Run(new TrayContext());
+    }
+
+    internal static void LogCrash(Exception? ex)
+    {
+        try
+        {
+            Directory.CreateDirectory(AppState.Dir);
+            File.AppendAllText(Path.Combine(AppState.Dir, "crash.log"),
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {ex}\n\n");
+        }
+        catch { }
     }
 }
 
