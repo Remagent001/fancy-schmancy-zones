@@ -11,6 +11,10 @@ public sealed class SavedWindow
 {
     public string Title { get; set; } = "";
     public string Process { get; set; } = "";
+
+    // Full path to the program's .exe, captured at lock time so we can relaunch it later.
+    public string ExePath { get; set; } = "";
+
     public Rect Bounds { get; set; }
 
     // Live handle for this session only — never persisted (handles are not stable across restarts).

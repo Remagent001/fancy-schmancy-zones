@@ -193,6 +193,7 @@ internal sealed class TrayContext : ApplicationContext
             {
                 int idx = i;
                 var sub = new ToolStripMenuItem(_state.Layouts[i].Name);
+                sub.DropDownItems.Add("Open apps + arrange", null, (_, _) => OpenAppsAndArrange(idx));
                 sub.DropDownItems.Add("Rename…", null, (_, _) => Rename(idx));
                 sub.DropDownItems.Add("Update to current windows", null, (_, _) => UpdateLayout(idx));
                 sub.DropDownItems.Add("Delete", null, (_, _) => Delete(idx));
@@ -249,6 +250,7 @@ internal sealed class TrayContext : ApplicationContext
             {
                 Title = w.Title,
                 Process = w.Process,
+                ExePath = w.ExePath,
                 Bounds = w.Bounds,
                 Hwnd = w.Hwnd
             });
@@ -310,6 +312,69 @@ internal sealed class TrayContext : ApplicationContext
 
         if (primary != IntPtr.Zero) WindowManager.Focus(primary);
         return restored;
+    }
+
+    /// <summary>
+    /// Launch any of the layout's apps that aren't currently open, wait for their
+    /// windows to appear, then arrange everything into the saved layout.
+    /// </summary>
+    private void OpenAppsAndArrange(int idx)
+    {
+        if (idx < 0 || idx >= _state.Layouts.Count) return;
+        if (_activating) return;
+        _activating = true;
+
+        var layout = _state.Layouts[idx];
+        _currentIndex = idx;
+        RebuildMenu();
+
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            int launched = 0;
+            try
+            {
+                var live = WindowManager.GetAltTabWindows();
+
+                // Which processes already have a window open right now?
+                var runningProcs = new HashSet<string>(
+                    live.Select(w => w.Process), StringComparer.OrdinalIgnoreCase);
+
+                // Launch each distinct .exe whose app isn't already showing a window.
+                var launchedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var saved in layout.Windows)
+                {
+                    if (string.IsNullOrEmpty(saved.ExePath)) continue;
+                    if (runningProcs.Contains(saved.Process)) continue;   // already open
+                    if (!launchedPaths.Add(saved.ExePath)) continue;      // don't launch the same exe twice
+                    if (WindowManager.Launch(saved.ExePath)) launched++;
+                }
+
+                // Give the freshly launched apps time to put their windows up, then arrange.
+                // Poll so we don't wait longer than needed, but cap the total wait.
+                if (launched > 0)
+                {
+                    int wanted = layout.Windows.Count;
+                    for (int i = 0; i < 20; i++)   // up to ~10s
+                    {
+                        System.Threading.Thread.Sleep(500);
+                        if (WindowManager.GetAltTabWindows().Count >= wanted) break;
+                    }
+                }
+
+                ShuffleToLayout(layout);
+            }
+            catch (Exception ex) { Program.LogCrash(ex); }
+            finally { _activating = false; }
+
+            try
+            {
+                int opened = launched;
+                _sync.BeginInvoke((Action)(() => Notify($"Opened \"{layout.Name}\"",
+                    opened > 0 ? $"Launched {opened} app(s) and arranged the layout."
+                               : "All apps were already open — arranged the layout.")));
+            }
+            catch { }
+        });
     }
 
     /// <summary>Find the live window that matches a saved one: live handle first, then process+title.</summary>

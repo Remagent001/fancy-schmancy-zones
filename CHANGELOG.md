@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0 — 2026-06-30
+
+- **New: launch a layout's apps automatically.** Layouts now also remember each window's
+  program file (its `.exe`), so a layout can rebuild itself from scratch — handy after a reboot
+  when none of the apps are open yet.
+- In the tray menu, under **Manage layouts → [layout name]**, there's a new
+  **"Open apps + arrange"** option. It opens any of that layout's apps that aren't already
+  running, waits for their windows to appear, then snaps everything into the saved positions.
+  Apps that are already open aren't reopened.
+- Note: this relaunches the *program*, not the exact document/tab you had — e.g. it reopens your
+  browser, but not the specific pages. Flipping (double-tap Ctrl) is unchanged and still only
+  arranges windows that are already open.
+
 ## 0.3.3 — 2026-06-25
 
 - **Really fixed the hang this time.** The freeze came from an old "force focus" trick

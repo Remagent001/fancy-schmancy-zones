@@ -12,6 +12,7 @@ public sealed class LiveWindow
     public IntPtr Hwnd { get; init; }
     public string Title { get; init; } = "";
     public string Process { get; init; } = "";
+    public string ExePath { get; init; } = "";
     public Rect Bounds { get; init; }
 }
 
@@ -36,7 +37,14 @@ public static class WindowManager
 
             GetWindowThreadProcessId(hwnd, out uint pid);
             string proc = "";
-            try { proc = Process.GetProcessById((int)pid).ProcessName; } catch { }
+            string exe = "";
+            try
+            {
+                var p = Process.GetProcessById((int)pid);
+                proc = p.ProcessName;
+                try { exe = p.MainModule?.FileName ?? ""; } catch { /* elevated/system procs deny module access */ }
+            }
+            catch { }
 
             GetWindowRect(hwnd, out RECT r);
 
@@ -45,6 +53,7 @@ public static class WindowManager
                 Hwnd = hwnd,
                 Title = sb.ToString(),
                 Process = proc,
+                ExePath = exe,
                 Bounds = new Rect(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top)
             });
             return true;
@@ -97,6 +106,23 @@ public static class WindowManager
     }
 
     public static bool IsAlive(IntPtr hwnd) => hwnd != IntPtr.Zero && IsWindow(hwnd);
+
+    /// <summary>Launch a program by its .exe path. Returns true if it started.</summary>
+    public static bool Launch(string exePath)
+    {
+        if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath)) return false;
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = exePath,
+                UseShellExecute = true,               // let Windows handle it like a double-click
+                WorkingDirectory = Path.GetDirectoryName(exePath) ?? ""
+            });
+            return true;
+        }
+        catch { return false; }
+    }
 
     // ---- P/Invoke ----
 
