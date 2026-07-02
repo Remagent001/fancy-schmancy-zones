@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0 — 2026-07-01
+
+- **Switching layouts now minimizes everything else.** By default, when you flip to a layout,
+  any window that isn't part of it — leftovers from another layout, or anything you opened since
+  — gets minimized. No more digging through unrelated windows on top of the one you switched to.
+- New setting: **Settings → "Minimize other windows when switching layouts"** — turn off to go
+  back to the old behavior (only the layout's own windows are moved/raised; everything else is
+  left alone).
+
 ## 0.6.0 — 2026-07-01
 
 - **Edge profiles now work too** (previously only Chrome). Edge labels its profile button

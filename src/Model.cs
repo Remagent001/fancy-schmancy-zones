@@ -40,6 +40,11 @@ public sealed class AppSettings
     // reopen/match that same profile. Turn off to treat all browser windows generically
     // (the pre-0.5.0 behavior) — e.g. if profile detection ever picks the wrong window.
     public bool MatchBrowserProfiles { get; set; } = true;
+
+    // When on, switching to a layout minimizes every open window that ISN'T part of that
+    // layout — leftovers from another layout, or anything opened since — so the layout you
+    // switch to is never left partly hidden behind something else.
+    public bool MinimizeOtherWindows { get; set; } = true;
 }
 
 /// <summary>Everything we persist between runs.</summary>

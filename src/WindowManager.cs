@@ -113,6 +113,9 @@ public static class WindowManager
 
     public static bool IsAlive(IntPtr hwnd) => hwnd != IntPtr.Zero && IsWindow(hwnd);
 
+    /// <summary>Minimize a window (e.g. one that isn't part of the layout being switched to).</summary>
+    public static void Minimize(IntPtr hwnd) => ShowWindowAsync(hwnd, SW_MINIMIZE);
+
     /// <summary>True for Chromium browsers whose windows are split across profiles.</summary>
     public static bool IsChromium(string proc) =>
         proc.Equals("chrome", StringComparison.OrdinalIgnoreCase) ||
@@ -177,6 +180,7 @@ public static class WindowManager
     private const uint GW_OWNER = 4;
     private const int DWMWA_CLOAKED = 14;
     private const int SW_RESTORE = 9;
+    private const int SW_MINIMIZE = 6;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOZORDER = 0x0004;

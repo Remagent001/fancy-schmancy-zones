@@ -215,6 +215,14 @@ internal sealed class TrayContext : ApplicationContext
         };
         matchProfilesItem.Click += (_, _) => ToggleMatchBrowserProfiles();
         settings.DropDownItems.Add(matchProfilesItem);
+
+        var minimizeOthersItem = new ToolStripMenuItem("Minimize other windows when switching layouts")
+        {
+            Checked = _state.Settings.MinimizeOtherWindows
+        };
+        minimizeOthersItem.Click += (_, _) => ToggleMinimizeOtherWindows();
+        settings.DropDownItems.Add(minimizeOthersItem);
+
         menu.Items.Add(settings);
 
         menu.Items.Add("How it works", null, (_, _) => ShowHelp());
@@ -235,6 +243,17 @@ internal sealed class TrayContext : ApplicationContext
             _state.Settings.MatchBrowserProfiles
                 ? "Layouts will remember which Chrome/Edge profile each window used."
                 : "Browser profiles will be ignored — all Chrome/Edge windows are treated the same.");
+    }
+
+    private void ToggleMinimizeOtherWindows()
+    {
+        _state.Settings.MinimizeOtherWindows = !_state.Settings.MinimizeOtherWindows;
+        _state.Save();
+        RebuildMenu();
+        Notify("Setting changed",
+            _state.Settings.MinimizeOtherWindows
+                ? "Switching layouts will minimize anything that isn't part of the layout."
+                : "Switching layouts will leave other windows alone.");
     }
 
     private void LockCurrent()
@@ -323,7 +342,7 @@ internal sealed class TrayContext : ApplicationContext
         System.Threading.Tasks.Task.Run(() =>
         {
             int restored = 0;
-            try { restored = ShuffleToLayout(layout, _state.Settings.MatchBrowserProfiles); }
+            try { restored = ShuffleToLayout(layout, _state.Settings.MatchBrowserProfiles, _state.Settings.MinimizeOtherWindows); }
             catch (Exception ex) { Program.LogCrash(ex); }
             finally { _activating = false; }
 
@@ -337,7 +356,7 @@ internal sealed class TrayContext : ApplicationContext
     }
 
     /// <summary>Move/raise each of the layout's windows. Runs on a background thread.</summary>
-    private static int ShuffleToLayout(LockedLayout layout, bool matchProfiles)
+    private static int ShuffleToLayout(LockedLayout layout, bool matchProfiles, bool minimizeOthers)
     {
         var live = WindowManager.GetAltTabWindows();
         if (matchProfiles) WindowManager.FillProfiles(live);   // so we place each Chrome window into its own profile's spot
@@ -358,6 +377,13 @@ internal sealed class TrayContext : ApplicationContext
             restored++;
         }
 
+        // Anything not part of THIS layout — leftovers from another layout, or windows opened
+        // since — gets minimized, so the layout you switched to is never left partly hidden.
+        if (minimizeOthers)
+            foreach (var w in live)
+                if (!used.Contains(w.Hwnd))
+                    WindowManager.Minimize(w.Hwnd);
+
         if (primary != IntPtr.Zero) WindowManager.Focus(primary);
         return restored;
     }
@@ -377,6 +403,7 @@ internal sealed class TrayContext : ApplicationContext
         RebuildMenu();
 
         bool matchProfiles = _state.Settings.MatchBrowserProfiles;
+        bool minimizeOthers = _state.Settings.MinimizeOtherWindows;
 
         System.Threading.Tasks.Task.Run(() =>
         {
@@ -416,7 +443,7 @@ internal sealed class TrayContext : ApplicationContext
                     }
                 }
 
-                ShuffleToLayout(layout, matchProfiles);
+                ShuffleToLayout(layout, matchProfiles, minimizeOthers);
             }
             catch (Exception ex) { Program.LogCrash(ex); }
             finally { _activating = false; }
@@ -524,7 +551,12 @@ internal sealed class TrayContext : ApplicationContext
             "This is read from the little profile button in the browser's toolbar, so if two " +
             "profiles share the exact same name, those windows can't be told apart — give them " +
             "distinct names in the browser to fix it. You can turn this off entirely under " +
-            "Settings → \"Match Chrome/Edge browser profiles.\"",
+            "Settings → \"Match Chrome/Edge browser profiles.\"\n\n" +
+            "KEEPING THINGS TIDY:\n" +
+            "By default, switching to a layout minimizes anything NOT part of that layout — " +
+            "leftovers from another layout, or windows you opened since — so what you switch to " +
+            "is never left partly hidden. Turn this off under Settings → \"Minimize other windows " +
+            "when switching layouts.\"",
             "How it works — Fancy Schmancy Zones",
             MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
