@@ -13,7 +13,7 @@
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <AssemblyName>FancySchmancyZones</AssemblyName>
     <RootNamespace>FancySchmancyZones</RootNamespace>
-    <Version>0.8.0</Version>
+    <Version>0.8.1</Version>
   </PropertyGroup>
 
 </Project>

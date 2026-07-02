@@ -339,7 +339,15 @@ internal sealed class TrayContext : ApplicationContext
     private static LockedLayout CaptureCurrent(string name, bool matchProfiles, out string? profileWarning)
     {
         var layout = new LockedLayout { Name = name };
-        var live = WindowManager.GetAltTabWindows();
+
+        // A layout is "what's arranged on screen right now" — so minimized windows are left out.
+        // (Their reported position is also garbage: Windows parks minimized windows tens of
+        // thousands of pixels off-screen, and saving that teleports them into the void later.)
+        // Same for anything already off every monitor.
+        var live = WindowManager.GetAltTabWindows()
+            .Where(w => !WindowManager.IsMinimized(w.Hwnd) && WindowManager.IsOnScreen(w.Bounds))
+            .ToList();
+
         if (matchProfiles) WindowManager.FillProfiles(live);   // note which Chrome/Edge profile each browser window is
         profileWarning = matchProfiles ? BuildProfileWarning(live) : null;
 

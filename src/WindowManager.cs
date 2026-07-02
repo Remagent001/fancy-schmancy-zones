@@ -97,6 +97,10 @@ public static class WindowManager
     public static void MoveTo(IntPtr hwnd, Rect b)
     {
         if (IsIconic(hwnd)) ShowWindowAsync(hwnd, SW_RESTORE);
+        // Never move a window to a spot that's off every monitor — stale layout data (e.g. a
+        // position captured while the window was minimized/"parked") would otherwise teleport
+        // it into the void: still on the taskbar, but impossible to see. Restore + raise only.
+        if (!IsOnScreen(b)) return;
         SetWindowPos(hwnd, IntPtr.Zero, b.X, b.Y, b.W, b.H, SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
     }
 
@@ -118,6 +122,15 @@ public static class WindowManager
 
     /// <summary>Minimize a window (e.g. one that isn't part of the layout being switched to).</summary>
     public static void Minimize(IntPtr hwnd) => ShowWindowAsync(hwnd, SW_MINIMIZE);
+
+    public static bool IsMinimized(IntPtr hwnd) => IsIconic(hwnd);
+
+    /// <summary>True if this rectangle is visible on at least one currently connected monitor.
+    /// Minimized windows report a "parked" position tens of thousands of pixels off-screen —
+    /// treating that as a real position is how windows get teleported into the void.</summary>
+    public static bool IsOnScreen(Rect b) =>
+        b.W > 0 && b.H > 0 &&
+        Screen.AllScreens.Any(s => s.Bounds.IntersectsWith(new Rectangle(b.X, b.Y, b.W, b.H)));
 
     /// <summary>
     /// Minimize every window in the list, then verify — a busy window (e.g. a terminal mid-output)
@@ -153,20 +166,33 @@ public static class WindowManager
         var wp = new WINDOWPLACEMENT { length = Marshal.SizeOf<WINDOWPLACEMENT>() };
         if (!GetWindowPlacement(hwnd, ref wp)) return false;
 
+        // Check both where the window IS right now and where it would RESTORE to. A window can
+        // be "normal" yet sitting at the minimized-park coordinates (tens of thousands of pixels
+        // off-screen) — on the taskbar, but impossible to see. Skip actually-minimized windows'
+        // current rect (parked by design); their restore rect is what matters.
+        bool currentBad = !IsIconic(hwnd) && GetWindowRect(hwnd, out RECT cur) &&
+                          !IsOnScreen(new Rect(cur.Left, cur.Top, cur.Right - cur.Left, cur.Bottom - cur.Top));
+
         var r = wp.rcNormalPosition;
         var rect = new Rectangle(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
-        if (rect.Width <= 0 || rect.Height <= 0) return false;   // nothing sane to reposition
-        if (Screen.AllScreens.Any(s => s.Bounds.IntersectsWith(rect))) return false;   // already fine
+        bool normalBad = rect.Width > 0 && rect.Height > 0 &&
+                         !Screen.AllScreens.Any(s => s.Bounds.IntersectsWith(rect));
+
+        if (!currentBad && !normalBad) return false;   // already fine
 
         var work = Screen.PrimaryScreen!.WorkingArea;
-        int w = Math.Min(rect.Width, work.Width - 40);
-        int h = Math.Min(rect.Height, work.Height - 40);
+        int w = Math.Clamp(rect.Width, 400, work.Width - 40);
+        int h = Math.Clamp(rect.Height, 300, work.Height - 40);
         wp.rcNormalPosition = new RECT
         {
             Left = work.Left + 20, Top = work.Top + 20,
             Right = work.Left + 20 + w, Bottom = work.Top + 20 + h
         };
+        wp.showCmd = SW_SHOWNORMAL;
         SetWindowPlacement(hwnd, ref wp);
+        // Belt and braces: placement alone can be ignored by some apps' custom window handling.
+        SetWindowPos(hwnd, IntPtr.Zero, work.Left + 20, work.Top + 20, w, h,
+                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
         return true;
     }
 
@@ -260,6 +286,7 @@ public static class WindowManager
     private const int DWMWA_CLOAKED = 14;
     private const int SW_RESTORE = 9;
     private const int SW_MINIMIZE = 6;
+    private const int SW_SHOWNORMAL = 1;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOZORDER = 0x0004;

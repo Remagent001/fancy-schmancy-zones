@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.1 — 2026-07-01
+
+- **Found and fixed the real "lost window" bug.** Diagnosis on a live machine showed the stuck
+  windows weren't minimized at all — they'd been *moved* to Windows' internal minimize-parking
+  spot (~25,000 pixels off-screen): still on the taskbar, impossible to see. Cause: locking a
+  layout while a window was minimized saved that parked position as the window's "spot," and the
+  next flip moved it there. Three fixes:
+  - Locking a layout now **skips minimized windows** (a layout is what's arranged on screen).
+  - The app now **refuses to move any window to a position that's off every monitor**, so stale
+    data in an existing layout can't teleport windows into the void anymore.
+  - **"Rescue lost windows"** now also detects this exact state (window "normal" but parked
+    off-screen) and pulls it back — previously it only checked the restore position.
+
 ## 0.8.0 — 2026-07-01
 
 - **"Open apps + arrange" no longer opens blank terminal windows.** A relaunched terminal can't
