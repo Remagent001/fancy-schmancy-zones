@@ -191,14 +191,15 @@ internal sealed class TrayContext : ApplicationContext
                     ToolTipText = "Left-click: switch to this layout  ·  Right-click: update it to your current windows"
                 };
                 // Right-click a layout name = "Update to current windows" (same as Manage layouts → Update),
-                // so refreshing a layout no longer takes three clicks.
+                // so refreshing a layout no longer takes three clicks. UpdateLayout rebuilds (and
+                // disposes) THIS menu, so we must not run it while the menu is still handling the
+                // click — close the menu, then defer the work onto the next UI-loop turn.
                 item.MouseUp += (_, e) =>
                 {
-                    if (e.Button == MouseButtons.Right)
-                    {
-                        menu.Close();
-                        UpdateLayout(idx);
-                    }
+                    if (e.Button != MouseButtons.Right) return;
+                    LogFlip($"right-click: update \"{_state.Layouts[idx].Name}\" to current windows");
+                    menu.Close();
+                    _sync.BeginInvoke(new Action(() => UpdateLayout(idx)));
                 };
                 menu.Items.Add(item);
             }
@@ -250,8 +251,23 @@ internal sealed class TrayContext : ApplicationContext
         menu.Items.Add("How it works", null, (_, _) => ShowHelp());
         menu.Items.Add("Quit", null, (_, _) => Quit());
 
+        // So Keith (and anyone) can always see exactly which build is running — no guessing.
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem($"Fancy Schmancy Zones  v{AppVersion}") { Enabled = false });
+
         _menu = menu;
         _tray.ContextMenuStrip = menu;
+    }
+
+    /// <summary>The running build's version (e.g. "0.9.2"), read from the assembly so the menu
+    /// can never disagree with what's actually installed.</summary>
+    private static string AppVersion
+    {
+        get
+        {
+            var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            return v is null ? "?" : $"{v.Major}.{v.Minor}.{v.Build}";
+        }
     }
 
     // ---- Actions ----
