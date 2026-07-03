@@ -574,9 +574,9 @@ internal sealed class TrayContext : ApplicationContext
     /// WHOLE layout. Every tier runs for all saved windows before the next, looser tier gets a
     /// turn, so a saved window whose real window is gone can never steal another saved window's
     /// exact match and set off a chain of wrong placements. The loosest tier ("some window of
-    /// the same app") never touches terminals (each terminal window is a different project — a
-    /// stand-in is always wrong) and never grabs a minimized window (the user put it away on
-    /// purpose; don't drag it back as a body double).
+    /// the same app") never touches terminals or browsers (each of their windows is a different
+    /// project / site — a stand-in is always the wrong one) and never grabs a minimized window
+    /// (the user put it away on purpose; don't drag it back as a body double).
     /// </summary>
     private static List<(IntPtr Hwnd, SavedWindow Saved)> MatchAll(LockedLayout layout, List<LiveWindow> live, bool matchProfiles)
     {
@@ -603,11 +603,14 @@ internal sealed class TrayContext : ApplicationContext
                 Math.Min(s.Title.Length, w.Title.Length) >= 5 &&
                 (w.Title.Contains(s.Title, StringComparison.OrdinalIgnoreCase) ||
                  s.Title.Contains(w.Title, StringComparison.OrdinalIgnoreCase))),
+            // Last resort: any other window of the same app. NEVER for terminals (each window is a
+            // different project) OR browsers (each window is a different site/page — grabbing a
+            // random Chrome/Edge window and raising it on top is exactly the "wrong window popped
+            // up" bug). If a browser/terminal slot's real window is closed, leave it out.
             ("same app", (s, w) => w.Process == s.Process &&
                 !WindowManager.IsTerminalHost(s.Process) &&
-                !WindowManager.IsMinimized(w.Hwnd) &&
-                (!matchProfiles || !WindowManager.IsChromium(s.Process) ||
-                 string.Equals(s.Profile, w.Profile, StringComparison.OrdinalIgnoreCase))),
+                !WindowManager.IsChromium(s.Process) &&
+                !WindowManager.IsMinimized(w.Hwnd)),
         };
 
         foreach (var (how, fits) in tiers)

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.3 — 2026-07-03
+
+- **Stopped random browser windows from popping on top after a flip.** If a layout referenced a
+  Chrome/Edge window that's since been closed, the app used to substitute *some other* browser
+  window into that slot and raise it — so an unrelated page would jump on top of the layout you
+  switched to. Browser windows are now treated like terminals: each one is its own site, so a
+  stand-in is always wrong. A closed browser slot is simply left out instead of grabbing a random
+  window. (Every flip is still recorded in `flip.log` for diagnosis.)
+- **The tray menu now shows the version** (bottom line, e.g. "Fancy Schmancy Zones  v0.9.3"), read
+  straight from the running program so it can never be wrong.
+- **Fixed right-click-to-update** (added in 0.9.2 but silently broken): right-clicking a layout
+  name updates it to your current windows. Left-click still switches to it.
+
 ## 0.9.2 — 2026-07-03
 
 - **Right-click a layout name to update it — one click instead of three.** "Update to current
