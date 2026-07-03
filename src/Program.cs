@@ -344,7 +344,12 @@ internal sealed class TrayContext : ApplicationContext
         _currentIndex = idx;
         _state.Save();
         RebuildMenu();
-        Notify("Layout updated", profileWarning ?? $"\"{name}\" now matches your current windows.");
+        // Confirm ON SCREEN, not via a Windows notification (those don't reliably show on Keith's
+        // PC, so an update looked like it did nothing). Showing the count also lets him see exactly
+        // how many windows got captured.
+        int n = _state.Layouts[idx].Windows.Count;
+        OsdForm.Flash(name, $"Updated ✓  —  saved your {n} open window{(n == 1 ? "" : "s")}");
+        if (profileWarning != null) Notify("Layout updated", profileWarning);
     }
 
     /// <summary>

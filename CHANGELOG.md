@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.5 — 2026-07-03
+
+- **Right-clicking a layout to update it now shows an on-screen confirmation.** It was already
+  working — it re-captured and saved your current windows — but the only feedback was a Windows
+  notification, which doesn't reliably show, so it looked like nothing happened. Now it flashes
+  the layout name with "Updated ✓ — saved your N open windows" right on screen, so you can see it
+  took (and see how many windows it grabbed).
+
 ## 0.9.4 — 2026-07-03
 
 - **The app no longer guesses which window to use — at all.** There was a last-resort rule: if a
