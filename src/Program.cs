@@ -370,7 +370,7 @@ internal sealed class TrayContext : ApplicationContext
 
     private volatile bool _activating;
 
-    private bool Activate(int idx, bool quiet = false)
+    private bool Activate(int idx)
     {
         if (idx < 0 || idx >= _state.Layouts.Count) return true;   // nothing to do — don't retry
         if (_activating) return false;    // a flip is mid-flight; caller may retry shortly
@@ -391,18 +391,16 @@ internal sealed class TrayContext : ApplicationContext
             catch (Exception ex) { Program.LogCrash(ex); }
             finally { _activating = false; }
 
-            // The on-screen flash already told the user where they landed, so a notification
-            // is only worth their attention when something's off — a saved window that
-            // couldn't be found. (Rapid cycling used to queue up a toast per flip, which
-            // Windows then dribbled out for the better part of a minute.)
-            if (!quiet || restored != layout.Windows.Count)
+            // NEVER use Windows notifications for flip status — they queue and dribble out one
+            // every few seconds, so ten flips meant a minute of pop-ups. If some of the layout's
+            // windows couldn't be found (closed since it was locked), say so in the on-screen
+            // flash itself: instant, and gone in a couple of seconds.
+            if (restored != layout.Windows.Count)
             {
                 try
                 {
-                    _sync.BeginInvoke((Action)(() => Notify($"Switched to \"{layout.Name}\"",
-                        restored == layout.Windows.Count
-                            ? $"{restored} window(s)."
-                            : $"{restored} of {layout.Windows.Count} window(s) found — the rest aren't open.")));
+                    _sync.BeginInvoke((Action)(() => OsdForm.Flash(layout.Name,
+                        $"{restored} of {layout.Windows.Count} windows — the rest aren't open")));
                 }
                 catch { }
             }
@@ -626,7 +624,7 @@ internal sealed class TrayContext : ApplicationContext
     /// flip is still mid-flight, the timer stays armed and simply tries again on its next tick.</summary>
     private void OnSettle()
     {
-        if (Activate(_currentIndex, quiet: true)) _settle.Stop();
+        if (Activate(_currentIndex)) _settle.Stop();
     }
 
     private void Rename(int idx)

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.1 — 2026-07-03
+
+- **Flipping never uses Windows notifications anymore — at all.** v0.9.0 still popped a toast
+  when a layout had missing windows, and since a layout can permanently reference a window
+  that's since been closed, that was still one toast per flip — and Windows queues them up and
+  shows them one every ~5 seconds. Gone. If some of a layout's windows couldn't be found, that
+  now shows as a small line inside the on-screen name flash itself ("5 of 9 windows — the rest
+  aren't open"): instant, gone in ~2.5 seconds, never queues, never piles up.
+
 ## 0.9.0 — 2026-07-02
 
 - **Rapid cycling is now instant.** Double-tapping Ctrl repeatedly used to fully rearrange the
