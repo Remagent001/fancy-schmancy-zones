@@ -403,23 +403,9 @@ internal sealed class TrayContext : ApplicationContext
         var live = WindowManager.GetAltTabWindows();
         if (matchProfiles) WindowManager.FillProfiles(live);   // so we place each Chrome window into its own profile's spot
         LogFlip($"flip to \"{layout.Name}\" ({layout.Windows.Count} saved, {live.Count} live, minimizeOthers={minimizeOthers})");
-        var used = new HashSet<IntPtr>();
-        var placements = new List<(IntPtr Hwnd, SavedWindow Saved)>();
-
         // Pass 1: figure out which live window plays each saved role. No moving yet.
-        foreach (var saved in layout.Windows)
-        {
-            IntPtr hwnd = Resolve(saved, live, used, matchProfiles);
-            if (hwnd == IntPtr.Zero)
-            {
-                LogFlip($"  no match for: {saved.Process} \"{saved.Title}\"");
-                continue;
-            }
-            used.Add(hwnd);
-            placements.Add((hwnd, saved));
-            var match = live.FirstOrDefault(w => w.Hwnd == hwnd);
-            LogFlip($"  {saved.Process} \"{saved.Title}\" -> \"{match?.Title}\"");
-        }
+        var placements = MatchAll(layout, live, matchProfiles);
+        var used = new HashSet<IntPtr>(placements.Select(p => p.Hwnd));
 
         // Pass 2: minimize everything that's NOT part of this layout — leftovers from another
         // layout, or windows opened since. Done BEFORE raising the layout's windows so that
@@ -544,46 +530,63 @@ internal sealed class TrayContext : ApplicationContext
         });
     }
 
-    /// <summary>Find the live window that matches a saved one: live handle first, then process+title.</summary>
-    private static IntPtr Resolve(SavedWindow saved, List<LiveWindow> live, HashSet<IntPtr> used, bool matchProfiles)
+    /// <summary>
+    /// Decide which live window plays each saved role — strongest evidence first, across the
+    /// WHOLE layout. Every tier runs for all saved windows before the next, looser tier gets a
+    /// turn, so a saved window whose real window is gone can never steal another saved window's
+    /// exact match and set off a chain of wrong placements. The loosest tier ("some window of
+    /// the same app") never touches terminals (each terminal window is a different project — a
+    /// stand-in is always wrong) and never grabs a minimized window (the user put it away on
+    /// purpose; don't drag it back as a body double).
+    /// </summary>
+    private static List<(IntPtr Hwnd, SavedWindow Saved)> MatchAll(LockedLayout layout, List<LiveWindow> live, bool matchProfiles)
     {
-        if (WindowManager.IsAlive(saved.Hwnd) && !used.Contains(saved.Hwnd))
-            return saved.Hwnd;
+        var saved = layout.Windows;
+        var match = new IntPtr[saved.Count];
+        var used = new HashSet<IntPtr>();
 
-        // Chrome/Edge with a known profile: only ever match the SAME profile, so a window
-        // never lands in the wrong profile's spot. Prefer the same page title within it.
-        if (matchProfiles && WindowManager.IsChromium(saved.Process) && !string.IsNullOrEmpty(saved.Profile))
+        // For title-evidence tiers: only a KNOWN different browser profile blocks a match.
+        bool ProfileOk(SavedWindow s, LiveWindow w) =>
+            !matchProfiles || !WindowManager.IsChromium(s.Process) ||
+            string.IsNullOrEmpty(s.Profile) || string.IsNullOrEmpty(w.Profile) ||
+            string.Equals(s.Profile, w.Profile, StringComparison.OrdinalIgnoreCase);
+
+        var tiers = new (string How, Func<SavedWindow, LiveWindow, bool> Fits)[]
         {
-            IntPtr firstOfProfile = IntPtr.Zero;
-            foreach (var w in live)
+            // The very same window as earlier this session — survives any title change.
+            ("handle", (s, w) => s.Hwnd != IntPtr.Zero && w.Hwnd == s.Hwnd &&
+                w.Process == s.Process && ProfileOk(s, w)),
+            ("exact title", (s, w) => w.Process == s.Process && w.Title == s.Title && ProfileOk(s, w)),
+            ("title start", (s, w) => w.Process == s.Process && ProfileOk(s, w) &&
+                (w.Title.StartsWith(s.Title, StringComparison.OrdinalIgnoreCase) ||
+                 s.Title.StartsWith(w.Title, StringComparison.OrdinalIgnoreCase))),
+            ("title contains", (s, w) => w.Process == s.Process && ProfileOk(s, w) &&
+                Math.Min(s.Title.Length, w.Title.Length) >= 5 &&
+                (w.Title.Contains(s.Title, StringComparison.OrdinalIgnoreCase) ||
+                 s.Title.Contains(w.Title, StringComparison.OrdinalIgnoreCase))),
+            ("same app", (s, w) => w.Process == s.Process &&
+                !WindowManager.IsTerminalHost(s.Process) &&
+                !WindowManager.IsMinimized(w.Hwnd) &&
+                (!matchProfiles || !WindowManager.IsChromium(s.Process) ||
+                 string.Equals(s.Profile, w.Profile, StringComparison.OrdinalIgnoreCase))),
+        };
+
+        foreach (var (how, fits) in tiers)
+            for (int i = 0; i < saved.Count; i++)
             {
-                if (used.Contains(w.Hwnd) || w.Process != saved.Process ||
-                    !string.Equals(w.Profile, saved.Profile, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (w.Title == saved.Title) return w.Hwnd;
-                if (firstOfProfile == IntPtr.Zero) firstOfProfile = w.Hwnd;
+                if (match[i] != IntPtr.Zero) continue;
+                var w = live.FirstOrDefault(x => !used.Contains(x.Hwnd) && fits(saved[i], x));
+                if (w == null) continue;
+                match[i] = w.Hwnd;
+                used.Add(w.Hwnd);
+                LogFlip($"  {saved[i].Process} \"{saved[i].Title}\" -> \"{w.Title}\" ({how})");
             }
-            return firstOfProfile;
-        }
 
-        // Exact title + process.
-        foreach (var w in live)
-            if (!used.Contains(w.Hwnd) && w.Process == saved.Process && w.Title == saved.Title)
-                return w.Hwnd;
-
-        // Same process, title starts the same (handles "file.txt - Notepad" drift).
-        foreach (var w in live)
-            if (!used.Contains(w.Hwnd) && w.Process == saved.Process &&
-                (w.Title.StartsWith(saved.Title, StringComparison.OrdinalIgnoreCase) ||
-                 saved.Title.StartsWith(w.Title, StringComparison.OrdinalIgnoreCase)))
-                return w.Hwnd;
-
-        // Last resort: any window of the same process.
-        foreach (var w in live)
-            if (!used.Contains(w.Hwnd) && w.Process == saved.Process)
-                return w.Hwnd;
-
-        return IntPtr.Zero;
+        var result = new List<(IntPtr, SavedWindow)>();
+        for (int i = 0; i < saved.Count; i++)
+            if (match[i] != IntPtr.Zero) result.Add((match[i], saved[i]));
+            else LogFlip($"  no match for: {saved[i].Process} \"{saved[i].Title}\" (not open — left out)");
+        return result;
     }
 
     private void Cycle(int direction)

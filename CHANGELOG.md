@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.3 — 2026-07-02
+
+- **Fixed: a closed window could knock every other window into the wrong spot.** The flip log
+  caught it in the act: if a layout contained a window that's since been closed (e.g. a terminal
+  named "remagent"), the matcher grabbed *any* other window of the same app as a stand-in — which
+  then stole the next window's spot, and so on down the line. Matching is now done strongest-
+  evidence-first across the whole layout: every certain match is claimed before any guessing
+  happens, so one missing window can't derail the rest.
+- **Minimized windows are never dragged in as stand-ins anymore.** If you minimized a window,
+  it stays minimized — it will only be brought back if it's genuinely the window the layout
+  saved (matched by its exact title or its handle), never as a substitute for a closed one.
+- **Terminal windows only ever match by name.** Every terminal window is a different project,
+  so a stand-in is always wrong. If a layout's terminal isn't open, that slot is simply skipped
+  (and noted in the flip log) instead of yanking an unrelated terminal into its place.
+
 ## 0.8.2 — 2026-07-02
 
 - **Fixed: switching layouts could still leave a window or two on top.** Two causes, both fixed:
