@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.4 — 2026-07-03
+
+- **The app no longer guesses which window to use — at all.** There was a last-resort rule: if a
+  window you'd saved in a layout was closed, grab *some other* window of the same app to fill its
+  spot. Reviewing the full history, that guess fired 10 times and was **wrong all 10** — every
+  time it grabbed an unrelated browser page and shoved it on top. It's gone. A flip now only ever
+  places the exact windows you saved (found by identity or title) and skips any that aren't open.
+  It can no longer put a wrong window in front of you. (Supersedes 0.9.3's browser-only version of
+  this fix.)
+
 ## 0.9.3 — 2026-07-03
 
 - **Stopped random browser windows from popping on top after a flip.** If a layout referenced a

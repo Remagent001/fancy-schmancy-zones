@@ -573,10 +573,10 @@ internal sealed class TrayContext : ApplicationContext
     /// Decide which live window plays each saved role — strongest evidence first, across the
     /// WHOLE layout. Every tier runs for all saved windows before the next, looser tier gets a
     /// turn, so a saved window whose real window is gone can never steal another saved window's
-    /// exact match and set off a chain of wrong placements. The loosest tier ("some window of
-    /// the same app") never touches terminals or browsers (each of their windows is a different
-    /// project / site — a stand-in is always the wrong one) and never grabs a minimized window
-    /// (the user put it away on purpose; don't drag it back as a body double).
+    /// exact match and set off a chain of wrong placements. There is deliberately NO "any window
+    /// of the same app" fallback: in practice it only ever grabbed the wrong window (a different
+    /// browser page, a different message) and raised it on top. A saved window that isn't open is
+    /// simply left out — the app never substitutes a look-alike.
     /// </summary>
     private static List<(IntPtr Hwnd, SavedWindow Saved)> MatchAll(LockedLayout layout, List<LiveWindow> live, bool matchProfiles)
     {
@@ -603,14 +603,12 @@ internal sealed class TrayContext : ApplicationContext
                 Math.Min(s.Title.Length, w.Title.Length) >= 5 &&
                 (w.Title.Contains(s.Title, StringComparison.OrdinalIgnoreCase) ||
                  s.Title.Contains(w.Title, StringComparison.OrdinalIgnoreCase))),
-            // Last resort: any other window of the same app. NEVER for terminals (each window is a
-            // different project) OR browsers (each window is a different site/page — grabbing a
-            // random Chrome/Edge window and raising it on top is exactly the "wrong window popped
-            // up" bug). If a browser/terminal slot's real window is closed, leave it out.
-            ("same app", (s, w) => w.Process == s.Process &&
-                !WindowManager.IsTerminalHost(s.Process) &&
-                !WindowManager.IsChromium(s.Process) &&
-                !WindowManager.IsMinimized(w.Hwnd)),
+            // NOTE: there used to be a "same app" last-resort tier — if a saved window was gone,
+            // grab any other window of that app. In the ENTIRE flip.log it never once produced a
+            // correct match; all 10 times it fired it grabbed the wrong browser page and raised it
+            // on top. So it's gone. The app now only ever places the exact windows you saved
+            // (by handle or by title) and leaves the rest out — it can never substitute a
+            // look-alike. If a saved window is closed, its slot is simply skipped.
         };
 
         foreach (var (how, fits) in tiers)
