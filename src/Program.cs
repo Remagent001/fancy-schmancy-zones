@@ -69,6 +69,8 @@ internal sealed class TrayContext : ApplicationContext
 
         _ = _sync.Handle; // force the handle to exist so BeginInvoke actually works
 
+        _settle.Tick += (_, _) => OnSettle();   // fires once cycling pauses; see Cycle()
+
         // Low-level keyboard hook: sees keys directly, even when other utilities
         // have grabbed combos via RegisterHotKey.
         _hook = new KeyboardHook(OnKey);
@@ -368,15 +370,16 @@ internal sealed class TrayContext : ApplicationContext
 
     private volatile bool _activating;
 
-    private void Activate(int idx)
+    private bool Activate(int idx, bool quiet = false)
     {
-        if (idx < 0 || idx >= _state.Layouts.Count) return;
-        if (_activating) return;          // ignore rapid repeat flips while one is in flight
+        if (idx < 0 || idx >= _state.Layouts.Count) return true;   // nothing to do — don't retry
+        if (_activating) return false;    // a flip is mid-flight; caller may retry shortly
         _activating = true;
 
         var layout = _state.Layouts[idx];
         _currentIndex = idx;
         RebuildMenu();
+        OsdForm.Flash(layout.Name);
 
         // Do all the window shuffling OFF the UI thread. Even though the calls are now
         // non-blocking, keeping them off the UI thread guarantees the app and keyboard
@@ -388,13 +391,23 @@ internal sealed class TrayContext : ApplicationContext
             catch (Exception ex) { Program.LogCrash(ex); }
             finally { _activating = false; }
 
-            try
+            // The on-screen flash already told the user where they landed, so a notification
+            // is only worth their attention when something's off — a saved window that
+            // couldn't be found. (Rapid cycling used to queue up a toast per flip, which
+            // Windows then dribbled out for the better part of a minute.)
+            if (!quiet || restored != layout.Windows.Count)
             {
-                _sync.BeginInvoke((Action)(() => Notify($"Switched to \"{layout.Name}\"",
-                    restored == layout.Windows.Count ? $"{restored} window(s)." : $"{restored} of {layout.Windows.Count} window(s) found.")));
+                try
+                {
+                    _sync.BeginInvoke((Action)(() => Notify($"Switched to \"{layout.Name}\"",
+                        restored == layout.Windows.Count
+                            ? $"{restored} window(s)."
+                            : $"{restored} of {layout.Windows.Count} window(s) found — the rest aren't open.")));
+                }
+                catch { }
             }
-            catch { }
         });
+        return true;
     }
 
     /// <summary>Move/raise each of the layout's windows. Runs on a background thread.</summary>
@@ -589,6 +602,12 @@ internal sealed class TrayContext : ApplicationContext
         return result;
     }
 
+    // Cycling is debounced like Alt+Tab: each double-tap just advances the selection and
+    // flashes the layout's NAME on screen instantly. The actual window shuffling (the slow
+    // part) only happens once, ~2/3 of a second after the last tap — so skimming past five
+    // layouts costs nothing, and there's no pile-up of window moves or notifications.
+    private readonly System.Windows.Forms.Timer _settle = new() { Interval = 650 };
+
     private void Cycle(int direction)
     {
         if (_state.Layouts.Count == 0)
@@ -597,8 +616,17 @@ internal sealed class TrayContext : ApplicationContext
             return;
         }
         int start = _currentIndex < 0 ? (direction > 0 ? -1 : 0) : _currentIndex;
-        int next = ((start + direction) % _state.Layouts.Count + _state.Layouts.Count) % _state.Layouts.Count;
-        Activate(next);
+        _currentIndex = ((start + direction) % _state.Layouts.Count + _state.Layouts.Count) % _state.Layouts.Count;
+        OsdForm.Flash(_state.Layouts[_currentIndex].Name);
+        _settle.Stop();
+        _settle.Start();
+    }
+
+    /// <summary>The user stopped cycling — arrange the layout they landed on. If a previous
+    /// flip is still mid-flight, the timer stays armed and simply tries again on its next tick.</summary>
+    private void OnSettle()
+    {
+        if (Activate(_currentIndex, quiet: true)) _settle.Stop();
     }
 
     private void Rename(int idx)
@@ -630,6 +658,8 @@ internal sealed class TrayContext : ApplicationContext
             $"   • {_nextKeyLabel}  →  next locked layout\n" +
             $"   • {_prevKeyLabel}  →  previous locked layout\n\n" +
             "Flipping brings that layout's windows to their saved spots and to the front.\n" +
+            "Flip quickly several times to skim — the layout name pops up on screen as you go, " +
+            "and the windows arrange once you stop.\n" +
             "Click the tray icon (left or right) to pick, rename, update, or delete layouts.\n\n" +
             "REOPENING APPS:\n" +
             "\"Open apps + arrange\" (under Manage layouts) launches any apps in that layout that " +
@@ -670,6 +700,7 @@ internal sealed class TrayContext : ApplicationContext
 
     private void Quit()
     {
+        _settle.Stop();
         _hook.Dispose();
         _sync.Dispose();
         _tray.Visible = false;

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0 — 2026-07-02
+
+- **Rapid cycling is now instant.** Double-tapping Ctrl repeatedly used to fully rearrange the
+  desktop at every step and queue up a notification per flip (which Windows then dribbled out
+  for close to a minute). Now each tap just flashes the layout's **name** in the middle of the
+  screen — like the volume popup — and the windows arrange themselves once, about two-thirds of
+  a second after your last tap. Skimming past five layouts to reach the sixth costs nothing.
+- **Far fewer notifications.** Switching layouts no longer pops a toast every time — the
+  on-screen name flash already tells you where you landed. You'll only get a notification when
+  something's worth knowing: some of the layout's windows couldn't be found (e.g. they've been
+  closed since the layout was locked).
+
 ## 0.8.3 — 2026-07-02
 
 - **Fixed: a closed window could knock every other window into the wrong spot.** The flip log
