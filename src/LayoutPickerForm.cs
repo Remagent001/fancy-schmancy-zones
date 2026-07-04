@@ -26,27 +26,31 @@ internal sealed class LayoutPickerForm : Form
     private readonly Label _hint;
     private readonly FlowLayoutPanel _flow;
 
+    /// <summary>One card's data: the layout name and the bounds of the windows that are actually
+    /// open right now (closed ones are left out so the card previews what a flip would really do).</summary>
+    public sealed record CardInfo(string Name, IReadOnlyList<Rect> OpenWindows);
+
     /// <summary>Show the picker (or re-focus the one already open). onPick fires with the chosen
     /// layout index; nothing fires if the user cancels.</summary>
-    public static void Show(IReadOnlyList<LockedLayout> layouts, int currentIndex, Action<int> onPick)
+    public static void Show(IReadOnlyList<CardInfo> cards, int currentIndex, Action<int> onPick)
     {
-        if (layouts.Count == 0) return;
+        if (cards.Count == 0) return;
         if (_current is { IsDisposed: false })
         {
             _current.Activate();
             return;
         }
-        var f = new LayoutPickerForm(layouts, currentIndex, onPick);
+        var f = new LayoutPickerForm(cards, currentIndex, onPick);
         _current = f;
         f.FormClosed += (_, _) => { if (ReferenceEquals(_current, f)) _current = null; };
         f.Show();
         f.Activate();
     }
 
-    private LayoutPickerForm(IReadOnlyList<LockedLayout> layouts, int currentIndex, Action<int> onPick)
+    private LayoutPickerForm(IReadOnlyList<CardInfo> cards, int currentIndex, Action<int> onPick)
     {
         _onPick = onPick;
-        _count = layouts.Count;
+        _count = cards.Count;
 
         var screen = Screen.FromPoint(Cursor.Position);
         FormBorderStyle = FormBorderStyle.None;
@@ -86,10 +90,10 @@ internal sealed class LayoutPickerForm : Form
             BackColor = Color.Transparent
         };
 
-        for (int i = 0; i < layouts.Count; i++)
+        for (int i = 0; i < cards.Count; i++)
         {
             int idx = i;
-            var card = new Card(layouts[i], i + 1, i == currentIndex);
+            var card = new Card(cards[i].Name, cards[i].OpenWindows, i + 1, i == currentIndex);
             card.Click += (_, _) => Pick(idx);
             _flow.Controls.Add(card);
         }
@@ -182,14 +186,16 @@ internal sealed class LayoutPickerForm : Form
     /// <summary>One layout tile: name, a little scaled map of its window rectangles, and a number.</summary>
     private sealed class Card : Panel
     {
-        private readonly LockedLayout _layout;
+        private readonly string _name;
+        private readonly IReadOnlyList<Rect> _openWindows;
         private readonly int _number;      // 1-based; the keyboard shortcut. 0 = none.
         private readonly bool _isCurrent;
         private bool _hover;
 
-        public Card(LockedLayout layout, int number, bool isCurrent)
+        public Card(string name, IReadOnlyList<Rect> openWindows, int number, bool isCurrent)
         {
-            _layout = layout;
+            _name = name;
+            _openWindows = openWindows;
             _number = number;
             _isCurrent = isCurrent;
             Size = new Size(300, 210);
@@ -216,52 +222,63 @@ internal sealed class LayoutPickerForm : Form
             using (var titleFont = new Font("Segoe UI", 12f, FontStyle.Bold))
             using (var titleBrush = new SolidBrush(Color.White))
             using (var sf = new StringFormat(StringFormatFlags.LineLimit) { Trimming = StringTrimming.EllipsisWord })
-                g.DrawString(_layout.Name, titleFont, titleBrush, new RectangleF(12, 9, Width - 46, 42), sf);
+                g.DrawString(_name, titleFont, titleBrush, new RectangleF(12, 9, Width - 46, 42), sf);
 
             if (_number is >= 1 and <= 9)
                 using (var numFont = new Font("Segoe UI", 11.5f, FontStyle.Bold))
                 using (var numBrush = new SolidBrush(Color.FromArgb(150, 150, 162)))
                     g.DrawString(_number.ToString(), numFont, numBrush, Width - 28, 9);
 
-            DrawMiniMap(g, new Rectangle(14, 56, Width - 28, Height - 70), _layout);
+            DrawMiniMap(g, new Rectangle(14, 56, Width - 28, Height - 70), _openWindows);
         }
 
-        /// <summary>Draw the layout's window rectangles, scaled to fit the given area (aspect
-        /// preserved, centered) — a recognizable little "map" of the arrangement.</summary>
-        private static void DrawMiniMap(Graphics g, Rectangle area, LockedLayout layout)
+        /// <summary>Draw a little map of the whole (multi-monitor) desktop: each connected monitor
+        /// as an outlined panel, with the layout's currently-OPEN windows placed on it. Scaled to
+        /// fit, aspect preserved. Closed windows aren't drawn — the card previews what you'd get.</summary>
+        private static void DrawMiniMap(Graphics g, Rectangle area, IReadOnlyList<Rect> openWindows)
         {
-            var wins = layout.Windows;
-            if (wins.Count == 0)
-            {
-                using var f = new Font("Segoe UI", 9.5f, FontStyle.Italic);
-                using var b = new SolidBrush(Color.FromArgb(120, 120, 130));
-                using var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                g.DrawString("(no windows saved)", f, b, area, sf);
-                return;
-            }
+            var screens = Screen.AllScreens.Select(s => s.Bounds).ToArray();
+            if (screens.Length == 0) return;
 
-            int minX = wins.Min(w => w.Bounds.X);
-            int minY = wins.Min(w => w.Bounds.Y);
-            int maxX = wins.Max(w => w.Bounds.X + w.Bounds.W);
-            int maxY = wins.Max(w => w.Bounds.Y + w.Bounds.H);
+            int minX = screens.Min(s => s.Left);
+            int minY = screens.Min(s => s.Top);
+            int maxX = screens.Max(s => s.Right);
+            int maxY = screens.Max(s => s.Bottom);
             float spanW = Math.Max(1, maxX - minX);
             float spanH = Math.Max(1, maxY - minY);
             float scale = Math.Min(area.Width / spanW, area.Height / spanH);
-            float drawW = spanW * scale, drawH = spanH * scale;
-            float offX = area.X + (area.Width - drawW) / 2f;
-            float offY = area.Y + (area.Height - drawH) / 2f;
+            float offX = area.X + (area.Width - spanW * scale) / 2f;
+            float offY = area.Y + (area.Height - spanH * scale) / 2f;
+            RectangleF Map(int x, int y, int w, int h) =>
+                new(offX + (x - minX) * scale, offY + (y - minY) * scale, Math.Max(2, w * scale), Math.Max(2, h * scale));
 
-            using var fill = new SolidBrush(Color.FromArgb(70, 120, 170, 255));
-            using var pen = new Pen(Color.FromArgb(210, 150, 190, 255), 1f);
-            foreach (var w in wins)
+            // Monitors: outlined panels so you can see monitor 1 vs monitor 2.
+            using (var monFill = new SolidBrush(Color.FromArgb(28, 255, 255, 255)))
+            using (var monPen = new Pen(Color.FromArgb(90, 190, 200, 225), 1f))
+                foreach (var s in screens)
+                {
+                    var r = Map(s.Left, s.Top, s.Width, s.Height);
+                    g.FillRectangle(monFill, r);
+                    g.DrawRectangle(monPen, r.X, r.Y, r.Width, r.Height);
+                }
+
+            if (openWindows.Count == 0)
             {
-                float x = offX + (w.Bounds.X - minX) * scale;
-                float y = offY + (w.Bounds.Y - minY) * scale;
-                float ww = Math.Max(3, w.Bounds.W * scale);
-                float hh = Math.Max(3, w.Bounds.H * scale);
-                g.FillRectangle(fill, x, y, ww, hh);
-                g.DrawRectangle(pen, x, y, ww, hh);
+                using var f = new Font("Segoe UI", 9f, FontStyle.Italic);
+                using var b = new SolidBrush(Color.FromArgb(140, 140, 150));
+                using var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Far };
+                g.DrawString("none of its windows are open", f, b, area, sf);
+                return;
             }
+
+            using (var fill = new SolidBrush(Color.FromArgb(150, 120, 170, 255)))
+            using (var pen = new Pen(Color.FromArgb(230, 165, 205, 255), 1f))
+                foreach (var w in openWindows)
+                {
+                    var r = Map(w.X, w.Y, w.W, w.H);
+                    g.FillRectangle(fill, r);
+                    g.DrawRectangle(pen, r.X, r.Y, r.Width, r.Height);
+                }
         }
     }
 }

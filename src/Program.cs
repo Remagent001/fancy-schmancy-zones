@@ -775,7 +775,17 @@ internal sealed class TrayContext : ApplicationContext
             return;
         }
         _settle.Stop();   // cancel any pending cycle so nothing flips windows behind the picker
-        LayoutPickerForm.Show(_state.Layouts, _currentIndex, idx =>
+
+        // Build each card's preview from the windows that are actually open right now (what a flip
+        // would place), so closed windows don't show up on the card.
+        var live = WindowManager.GetAltTabWindows();
+        var cards = _state.Layouts
+            .Select(layout => new LayoutPickerForm.CardInfo(
+                layout.Name,
+                MatchAll(layout, live, false).Select(p => p.Saved.Bounds).ToList()))
+            .ToList();
+
+        LayoutPickerForm.Show(cards, _currentIndex, idx =>
         {
             // Apply immediately if we can; if a previous switch is still finishing (_activating),
             // queue via the settle timer's retry so the pick is never silently dropped.

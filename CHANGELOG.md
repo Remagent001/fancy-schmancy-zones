@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.1 — 2026-07-04
+
+- **The layout cards now preview what you'll actually get.** Each card's little map only draws the
+  windows that are open right now — closed windows are left out (a layout with nothing open says
+  "none of its windows are open").
+- **The maps now show your monitors.** Each connected monitor is drawn as its own panel, with the
+  windows placed on the right one — so at a glance you can see what's on monitor 1 vs monitor 2.
+
 ## 0.10.0 — 2026-07-03
 
 - **New: choose what a double-tap of Ctrl does.** Settings → "When I double-tap Ctrl…" now offers
