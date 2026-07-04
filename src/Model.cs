@@ -33,6 +33,17 @@ public sealed class LockedLayout
     public List<SavedWindow> Windows { get; set; } = new();
 }
 
+/// <summary>What a double-tap of Ctrl does.</summary>
+public enum FlipMode
+{
+    /// <summary>Step through the layouts top-to-bottom, in list order (the original behavior).</summary>
+    InOrder,
+    /// <summary>Jump to the most recently used layout — so you bounce between the two you use most.</summary>
+    MostRecent,
+    /// <summary>Show every layout on screen as a clickable card and let you pick one.</summary>
+    PickCards
+}
+
 /// <summary>User-adjustable app behavior, persisted alongside layouts.</summary>
 public sealed class AppSettings
 {
@@ -51,6 +62,9 @@ public sealed class AppSettings
     // it, so it's not useful, just clutter. Already-open terminal windows are still matched
     // and repositioned normally either way. Turn on only if you'd rather have blank ones open.
     public bool LaunchTerminalApps { get; set; } = false;
+
+    // What a double-tap of Ctrl does. Defaults to showing the on-screen card picker.
+    public FlipMode DoubleTapCtrl { get; set; } = FlipMode.PickCards;
 }
 
 /// <summary>Everything we persist between runs.</summary>
@@ -62,7 +76,9 @@ public sealed class AppState
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        // Persist the flip-mode enum as a readable name ("PickCards"), and tolerate reordering.
+        Converters = { new JsonStringEnumConverter() }
     };
 
     public static string Dir =>

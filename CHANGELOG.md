@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.0 — 2026-07-03
+
+- **New: choose what a double-tap of Ctrl does.** Settings → "When I double-tap Ctrl…" now offers
+  three modes:
+  1. **Cycle through layouts in order** — the original behavior.
+  2. **Switch to the most recent layout** — jumps to the layout you were just on, so you bounce
+     back and forth between the two you use most instead of walking through all of them.
+  3. **Show all layouts to pick from** *(the default)* — pops up every layout as a clickable card,
+     each showing its name and a little map of where its windows sit. Click a card, press its
+     number (1–9), or press Esc / click away to cancel.
+- The picker works from the tray without stealing focus from whatever you're doing: its keys come
+  through the same global listener the app already uses, so Esc and the number keys always work.
+- Guardrails from an adversarial review of this feature: a card picked while the previous switch is
+  still finishing is queued instead of dropped; the Ctrl chords and pending switches can't rearrange
+  windows behind the open picker; and deleting/renaming a layout keeps "most recent" pointed at the
+  right one.
+
 ## 0.9.6 — 2026-07-03
 
 - **Right-click to update a layout actually sticks now.** The real bug (caught in the log): a menu

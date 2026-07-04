@@ -112,6 +112,15 @@ internal sealed class TrayContext : ApplicationContext
             try { File.WriteAllText(Path.Combine(AppState.Dir, "diag.txt"), "keyboard listener IS receiving keys\n"); } catch { }
         }
 
+        // While the card picker is open, its keys (Esc, 1–9) arrive here — the overlay is a
+        // background window and usually can't hold keyboard focus, but this global hook sees keys
+        // regardless. Consume them so they don't leak to whatever app is underneath.
+        if (LayoutPickerForm.WantsKey(vk))
+        {
+            if (down) LayoutPickerForm.PressKey(vk);
+            return true;
+        }
+
         bool isCtrl = vk == VK_LCONTROL || vk == VK_RCONTROL;
 
         if (isCtrl)
@@ -130,7 +139,7 @@ internal sealed class TrayContext : ApplicationContext
                     if (_lastCtrlTapTick != 0 && now - _lastCtrlTapTick <= DoubleTapMs)
                     {
                         _lastCtrlTapTick = 0;
-                        Run(() => Cycle(+1));   // double-tap! flip to next layout
+                        Run(OnDoubleTapCtrl);   // double-tap! what this does depends on the setting
                     }
                     else _lastCtrlTapTick = now;
                 }
@@ -247,10 +256,31 @@ internal sealed class TrayContext : ApplicationContext
         }
 
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(new ToolStripMenuItem("Flip layouts:  double-tap Ctrl") { Enabled = false });
+        string modeHint = _state.Settings.DoubleTapCtrl switch
+        {
+            FlipMode.MostRecent => "double-tap Ctrl → most recent layout",
+            FlipMode.PickCards  => "double-tap Ctrl → pick from cards",
+            _                   => "double-tap Ctrl → next in order",
+        };
+        menu.Items.Add(new ToolStripMenuItem($"Flip layouts:  {modeHint}") { Enabled = false });
         menu.Items.Add(new ToolStripMenuItem($"   or  next {_nextKeyLabel}  ·  prev {_prevKeyLabel}") { Enabled = false });
 
         var settings = new ToolStripMenuItem("Settings");
+
+        // Triple toggle: what a double-tap of Ctrl does. Radio-style — one checked at a time.
+        var flipMode = new ToolStripMenuItem("When I double-tap Ctrl…");
+        void AddFlipMode(string label, FlipMode mode)
+        {
+            var mi = new ToolStripMenuItem(label) { Checked = _state.Settings.DoubleTapCtrl == mode };
+            mi.Click += (_, _) => SetFlipMode(mode);
+            flipMode.DropDownItems.Add(mi);
+        }
+        AddFlipMode("Cycle through layouts in order", FlipMode.InOrder);
+        AddFlipMode("Switch to the most recent layout", FlipMode.MostRecent);
+        AddFlipMode("Show all layouts to pick from", FlipMode.PickCards);
+        settings.DropDownItems.Add(flipMode);
+        settings.DropDownItems.Add(new ToolStripSeparator());
+
         var matchProfilesItem = new ToolStripMenuItem("Match Chrome/Edge browser profiles")
         {
             Checked = _state.Settings.MatchBrowserProfiles
@@ -298,6 +328,21 @@ internal sealed class TrayContext : ApplicationContext
     }
 
     // ---- Actions ----
+
+    private void SetFlipMode(FlipMode mode)
+    {
+        _state.Settings.DoubleTapCtrl = mode;
+        _state.Save();
+        RebuildMenu();
+        string what = mode switch
+        {
+            FlipMode.InOrder    => "cycles through your layouts in order",
+            FlipMode.MostRecent => "jumps to your most recent layout",
+            FlipMode.PickCards  => "shows all layouts to pick from",
+            _                   => "",
+        };
+        OsdForm.Flash("Double-tap Ctrl", what);
+    }
 
     private void ToggleMatchBrowserProfiles()
     {
@@ -434,7 +479,9 @@ internal sealed class TrayContext : ApplicationContext
     {
         if (idx < 0 || idx >= _state.Layouts.Count) return true;   // nothing to do — don't retry
         if (_activating) return false;    // a flip is mid-flight; caller may retry shortly
+        _settle.Stop();                   // a direct switch supersedes any pending cycle settle
         _activating = true;
+        MarkUsed(idx);                    // for the "most recent" double-tap mode
 
         var layout = _state.Layouts[idx];
         _currentIndex = idx;
@@ -531,6 +578,7 @@ internal sealed class TrayContext : ApplicationContext
         if (idx < 0 || idx >= _state.Layouts.Count) return;
         if (_activating) { OsdForm.Flash(_state.Layouts[idx].Name, "Busy — one moment…"); return; }
         _activating = true;
+        MarkUsed(idx);                    // for the "most recent" double-tap mode
 
         var layout = _state.Layouts[idx];
         _currentIndex = idx;
@@ -670,16 +718,91 @@ internal sealed class TrayContext : ApplicationContext
     // layouts costs nothing, and there's no pile-up of window moves or notifications.
     private readonly System.Windows.Forms.Timer _settle = new() { Interval = 650 };
 
-    private void Cycle(int direction)
+    // Layout names in most-recently-used order (index 0 = current). Drives the "most recent"
+    // double-tap mode so you can bounce between the two layouts you actually use. Names (not
+    // indexes) so it survives reordering; entries for deleted layouts are simply ignored.
+    private readonly List<string> _recentOrder = new();
+
+    private void MarkUsed(int idx)
+    {
+        if (idx < 0 || idx >= _state.Layouts.Count) return;
+        string name = _state.Layouts[idx].Name;
+        _recentOrder.Remove(name);
+        _recentOrder.Insert(0, name);
+    }
+
+    /// <summary>The most-recently-used layout that ISN'T the current one — the "swap back" target.
+    /// Falls back to the next one in order if there's no usable history yet.</summary>
+    private int MostRecentOtherLayout()
+    {
+        foreach (var name in _recentOrder)
+        {
+            int i = _state.Layouts.FindIndex(l => l.Name == name);
+            if (i >= 0 && i != _currentIndex) return i;
+        }
+        if (_state.Layouts.Count == 0) return -1;
+        int start = _currentIndex < 0 ? 0 : _currentIndex;
+        return (start + 1) % _state.Layouts.Count;
+    }
+
+    /// <summary>Double-tap Ctrl. What it does depends on the user's chosen flip mode.</summary>
+    private void OnDoubleTapCtrl()
+    {
+        switch (_state.Settings.DoubleTapCtrl)
+        {
+            case FlipMode.MostRecent: FlipToMostRecent(); break;
+            case FlipMode.PickCards:  ShowLayoutPicker();  break;
+            default:                  Cycle(+1);           break;   // InOrder
+        }
+    }
+
+    private void FlipToMostRecent()
     {
         if (_state.Layouts.Count == 0)
         {
             Notify("No locked layouts yet", $"Arrange your windows, then press {_lockKeyLabel} to lock one.");
             return;
         }
+        int target = MostRecentOtherLayout();
+        if (target >= 0) RequestFlip(target);
+    }
+
+    private void ShowLayoutPicker()
+    {
+        if (_state.Layouts.Count == 0)
+        {
+            Notify("No locked layouts yet", $"Arrange your windows, then press {_lockKeyLabel} to lock one.");
+            return;
+        }
+        _settle.Stop();   // cancel any pending cycle so nothing flips windows behind the picker
+        LayoutPickerForm.Show(_state.Layouts, _currentIndex, idx =>
+        {
+            // Apply immediately if we can; if a previous switch is still finishing (_activating),
+            // queue via the settle timer's retry so the pick is never silently dropped.
+            if (!Activate(idx)) RequestFlip(idx);
+        });
+    }
+
+    private void Cycle(int direction)
+    {
+        if (LayoutPickerForm.IsOpen) return;   // don't flip windows behind an open card picker
+        if (_state.Layouts.Count == 0)
+        {
+            Notify("No locked layouts yet", $"Arrange your windows, then press {_lockKeyLabel} to lock one.");
+            return;
+        }
         int start = _currentIndex < 0 ? (direction > 0 ? -1 : 0) : _currentIndex;
-        _currentIndex = ((start + direction) % _state.Layouts.Count + _state.Layouts.Count) % _state.Layouts.Count;
-        OsdForm.Flash(_state.Layouts[_currentIndex].Name);
+        RequestFlip(((start + direction) % _state.Layouts.Count + _state.Layouts.Count) % _state.Layouts.Count);
+    }
+
+    /// <summary>Select a layout and arrange it after the debounce settle — the shared path for
+    /// cycling, most-recent, and a picker pick that had to wait for a busy flip. OnSettle retries
+    /// Activate until the switch actually applies, so a request is never dropped.</summary>
+    private void RequestFlip(int idx)
+    {
+        if (idx < 0 || idx >= _state.Layouts.Count) return;
+        _currentIndex = idx;
+        OsdForm.Flash(_state.Layouts[idx].Name);
         _settle.Stop();
         _settle.Start();
     }
@@ -688,14 +811,18 @@ internal sealed class TrayContext : ApplicationContext
     /// flip is still mid-flight, the timer stays armed and simply tries again on its next tick.</summary>
     private void OnSettle()
     {
+        if (LayoutPickerForm.IsOpen) { _settle.Stop(); return; }   // never rearrange behind the picker
         if (Activate(_currentIndex)) _settle.Stop();
     }
 
     private void Rename(int idx)
     {
-        var name = NameForm.Ask("Rename layout", "New name:", _state.Layouts[idx].Name);
+        var oldName = _state.Layouts[idx].Name;
+        var name = NameForm.Ask("Rename layout", "New name:", oldName);
         if (name == null) return;
         _state.Layouts[idx].Name = name;
+        int ri = _recentOrder.IndexOf(oldName);   // keep most-recent history pointing at this layout
+        if (ri >= 0) _recentOrder[ri] = name;
         _state.Save();
         RebuildMenu();
     }
@@ -703,7 +830,10 @@ internal sealed class TrayContext : ApplicationContext
     private void Delete(int idx)
     {
         _state.Layouts.RemoveAt(idx);
-        if (_currentIndex >= _state.Layouts.Count) _currentIndex = -1;
+        // Keep _currentIndex pointing at the SAME layout (it shifts down if we removed one above it).
+        if (idx == _currentIndex) _currentIndex = -1;
+        else if (idx < _currentIndex) _currentIndex--;
+        if (_currentIndex >= _state.Layouts.Count) _currentIndex = -1;   // backstop
         _state.Save();
         RebuildMenu();
     }
