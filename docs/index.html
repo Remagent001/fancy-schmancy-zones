@@ -4,141 +4,196 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fancy Schmancy Zones — lockable window layouts for Windows</title>
-<meta name="description" content="A tiny Windows tray app that adds lockable, named window layouts on top of PowerToys FancyZones. Arrange once, lock it, flip between layouts instantly.">
+<meta name="description" content="A tiny Windows tray app that turns whole window arrangements into named layouts you can flip between. Lock a layout, double-tap Ctrl, and every window snaps back where it belongs — or fan all your layouts across the screen and pick one.">
+<meta name="theme-color" content="#0E0E13">
+<meta property="og:title" content="Fancy Schmancy Zones — lockable window layouts for Windows">
+<meta property="og:description" content="Lock a window arrangement as a named layout. Flip back to it with a keystroke, or fan every layout across your screen and pick one.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://remagent001.github.io/fancy-schmancy-zones/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#14142a; --bg2:#1a1a2e; --panel:#1d2748; --panel2:#161f3b;
-    --text:#e8e8f0; --muted:#9aa0b8; --accent:#e94560; --accent2:#ff6b81;
-    --purple:#b388ff; --green:#4ade80; --border:rgba(255,255,255,.10);
-    --radius:14px;
+    /* Palette lifted from the app's own UI: near-black overlay, window-blue fills, hairline monitor edges. */
+    --ink:#0E0E13; --ink2:#14141b; --panel:#1a1a22; --panel2:#20202a;
+    --edge:rgba(255,255,255,.09); --edge2:rgba(255,255,255,.14);
+    --text:#ECECF3; --muted:#9494a6; --dim:#6f6f82;
+    --win:#78aaff; --win-soft:rgba(120,170,255,.16); --win-line:rgba(150,190,255,.55);
+    --lock:#ffcf6b;
+    --r:16px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
   body{
-    font-family:'Segoe UI',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
-    background:radial-gradient(1200px 700px at 80% -10%,rgba(179,136,255,.14),transparent 60%),
-               radial-gradient(900px 600px at 0% 0%,rgba(233,69,96,.12),transparent 55%),
-               var(--bg);
-    color:var(--text);line-height:1.65;-webkit-font-smoothing:antialiased;
+    font-family:"Hanken Grotesk",system-ui,-apple-system,Segoe UI,sans-serif;
+    background:
+      radial-gradient(1100px 620px at 82% -8%,rgba(120,170,255,.13),transparent 60%),
+      radial-gradient(760px 520px at -5% 4%,rgba(120,170,255,.06),transparent 55%),
+      var(--ink);
+    color:var(--text);line-height:1.6;-webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
   }
-  .wrap{max-width:1040px;margin:0 auto;padding:0 22px}
-  a{color:var(--purple);text-decoration:none}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+  a{color:var(--win);text-decoration:none}
   a:hover{text-decoration:underline}
+  :focus-visible{outline:2px solid var(--win);outline-offset:3px;border-radius:6px}
 
-  /* nav */
-  nav{display:flex;align-items:center;justify-content:space-between;padding:22px 0}
-  .brand{display:flex;align-items:center;gap:12px;font-weight:700;font-size:18px}
-  .logo{width:34px;height:34px;border-radius:9px;background:var(--panel);
-    display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:3px;padding:5px;
-    border:1px solid var(--border)}
-  .logo i{border-radius:3px;background:#3a4670;display:block}
-  .logo i.on{background:var(--accent)}
-  .nav-links{display:flex;gap:22px;align-items:center;font-size:14px}
+  h1,h2,h3,.brand,.tabs button,.eyebrow{font-family:"Space Grotesk",var(--body),sans-serif}
+  kbd,.mono,.k{font-family:"JetBrains Mono",ui-monospace,Consolas,monospace}
+
+  /* ---- nav ---- */
+  nav{display:flex;align-items:center;justify-content:space-between;padding:22px 0;position:sticky;top:0;z-index:20;
+    background:linear-gradient(var(--ink),rgba(14,14,19,.72) 70%,transparent);backdrop-filter:blur(6px)}
+  .brand{display:flex;align-items:center;gap:12px;font-weight:700;font-size:17px;letter-spacing:-.2px}
+  .glyph{width:30px;height:26px;border:1px solid var(--edge2);border-radius:6px;display:grid;
+    grid-template-columns:1.5fr 1fr;grid-template-rows:1fr 1fr;gap:2px;padding:3px;background:var(--panel)}
+  .glyph i{background:var(--win-soft);border:1px solid var(--win-line);border-radius:2px}
+  .glyph i:first-child{grid-row:1 / span 2}
+  .nav-links{display:flex;gap:26px;align-items:center;font-size:14px}
   .nav-links a{color:var(--muted)}
-  .btn{display:inline-block;background:linear-gradient(135deg,var(--accent),var(--accent2));
-    color:#fff;font-weight:600;padding:11px 20px;border-radius:10px;border:none;cursor:pointer;
-    box-shadow:0 8px 24px rgba(233,69,96,.32);transition:transform .15s,box-shadow .15s}
-  .btn:hover{transform:translateY(-2px);text-decoration:none;box-shadow:0 12px 30px rgba(233,69,96,.42)}
-  .btn.ghost{background:transparent;border:1px solid var(--border);box-shadow:none;color:var(--text)}
+  .nav-links a:hover{color:var(--text);text-decoration:none}
+  .btn{display:inline-flex;align-items:center;gap:8px;background:var(--win);color:#08121f;font-weight:600;
+    font-family:"Space Grotesk",sans-serif;padding:11px 18px;border-radius:11px;border:1px solid transparent;cursor:pointer;
+    transition:transform .14s ease,box-shadow .14s ease,background .14s;box-shadow:0 10px 30px rgba(120,170,255,.24)}
+  .btn:hover{transform:translateY(-2px);text-decoration:none;box-shadow:0 16px 38px rgba(120,170,255,.34);background:#8fb8ff}
+  .btn.ghost{background:transparent;border-color:var(--edge2);color:var(--text);box-shadow:none}
+  .btn.ghost:hover{background:rgba(255,255,255,.05)}
+  .btn.sm{padding:9px 15px;font-size:14px}
 
-  /* hero */
-  header.hero{padding:46px 0 30px;display:grid;grid-template-columns:1.05fr .95fr;gap:40px;align-items:center}
-  .eyebrow{display:inline-block;font-size:12.5px;letter-spacing:.5px;text-transform:uppercase;
-    color:var(--purple);background:rgba(179,136,255,.12);padding:5px 11px;border-radius:99px;
-    border:1px solid rgba(179,136,255,.25);margin-bottom:16px}
-  h1{font-size:44px;line-height:1.1;letter-spacing:-.5px;margin-bottom:16px}
-  h1 .grad{background:linear-gradient(120deg,var(--accent2),var(--purple));
-    -webkit-background-clip:text;background-clip:text;color:transparent}
-  .lede{font-size:18px;color:#cfd3e6;max-width:540px;margin-bottom:26px}
-  .cta{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
-  .cta small{color:var(--muted);font-size:13px}
+  /* ---- hero ---- */
+  .hero{display:grid;grid-template-columns:1fr 1.02fr;gap:48px;align-items:center;padding:52px 0 26px}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.6px;text-transform:uppercase;
+    font-weight:600;color:var(--win);background:var(--win-soft);border:1px solid var(--win-line);
+    padding:5px 12px;border-radius:99px;margin-bottom:20px}
+  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--win)}
+  h1{font-size:clamp(34px,4.4vw,52px);line-height:1.04;letter-spacing:-1px;font-weight:700}
+  h1 em{font-style:normal;color:var(--win)}
+  .lede{font-size:18px;color:#c8c8d6;max-width:520px;margin:20px 0 28px}
+  .cta{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .cta .fine{color:var(--dim);font-size:13px;margin-top:14px;flex-basis:100%}
 
-  /* hero visual */
-  .demo{background:var(--panel2);border:1px solid var(--border);border-radius:18px;padding:16px;
-    box-shadow:0 30px 60px rgba(0,0,0,.4)}
-  /* Windows-style title bar */
-  .winbar{display:flex;align-items:center;justify-content:space-between;padding:0 2px 12px}
-  .winbar .title{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:8px}
-  .winbar .title .mini{width:15px;height:15px;border-radius:4px;background:var(--panel);
-    display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:1.5px;padding:2.5px;border:1px solid var(--border)}
-  .winbar .title .mini i{background:#3a4670;border-radius:1px}
-  .winbar .title .mini i.on{background:var(--accent)}
-  .winbar .ctrls{display:flex}
-  .winbar .ctrls i{width:30px;height:20px;display:flex;align-items:center;justify-content:center;
-    color:#aab0c8;font-size:12px;font-style:normal;border-radius:4px}
-  .winbar .ctrls i.x:hover{background:#e81123;color:#fff}
-  .winbar .ctrls i:hover{background:rgba(255,255,255,.08)}
-  .zones{display:grid;grid-template-columns:1.4fr 1fr;grid-template-rows:1fr 1fr;gap:10px;height:230px}
-  .zone{border-radius:10px;border:1px solid var(--border);background:#222d52;
-    display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;
-    position:relative;overflow:hidden}
-  .zone.tall{grid-row:1 / span 2}
-  .zone.live{border-color:var(--accent);background:linear-gradient(135deg,rgba(233,69,96,.22),#222d52)}
-  .zone .lbl{position:absolute;top:8px;left:8px;font-size:11px;font-weight:600;color:#fff;
-    background:rgba(233,69,96,.85);padding:2px 8px;border-radius:6px}
-  .tag-row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-  .chip{font-size:12px;color:var(--muted);background:var(--panel);border:1px solid var(--border);
-    padding:5px 11px;border-radius:8px}
-  .chip b{color:var(--text)}
-  .chip.active{color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none}
+  /* ---- the signature: a mock 2-monitor desktop that re-arranges between layouts ---- */
+  .flip{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--edge);
+    border-radius:20px;padding:16px;box-shadow:0 40px 90px rgba(0,0,0,.5)}
+  .screen{position:relative;height:300px;border-radius:12px;background:
+    radial-gradient(120% 140% at 50% 0%,#12121a,#0b0b11);overflow:hidden;border:1px solid var(--edge)}
+  .mon{position:absolute;top:6%;height:88%;border:1px dashed rgba(255,255,255,.14);border-radius:7px}
+  .mon-a{left:2%;width:58%}
+  .mon-b{left:62%;width:36%}
+  .mon-tag{position:absolute;bottom:5px;left:8px;font-size:9.5px;letter-spacing:.5px;color:var(--dim);
+    font-family:"JetBrains Mono",monospace}
+  .win{position:absolute;border-radius:7px;background:var(--win-soft);border:1px solid var(--win-line);
+    box-shadow:0 8px 20px rgba(0,0,0,.35);transition:left .55s cubic-bezier(.6,.05,.2,1),
+    top .55s cubic-bezier(.6,.05,.2,1),width .55s cubic-bezier(.6,.05,.2,1),
+    height .55s cubic-bezier(.6,.05,.2,1),opacity .35s ease,transform .35s ease;overflow:hidden}
+  .win::before{content:"";position:absolute;top:0;left:0;right:0;height:12px;
+    background:linear-gradient(rgba(120,170,255,.28),transparent);border-bottom:1px solid rgba(120,170,255,.22)}
+  .win span{position:absolute;bottom:7px;left:9px;font-size:11px;font-weight:600;color:#dbe6ff;
+    font-family:"JetBrains Mono",monospace;letter-spacing:-.2px}
+  .win.gone{opacity:0;transform:scale(.92)}
+  .tabs{display:flex;gap:7px;margin-top:14px;flex-wrap:wrap}
+  .tabs button{font-size:13px;font-weight:600;color:var(--muted);background:transparent;
+    border:1px solid var(--edge);border-radius:9px;padding:7px 13px;cursor:pointer;transition:.15s}
+  .tabs button:hover{color:var(--text);border-color:var(--edge2)}
+  .tabs button.on{color:#08121f;background:var(--win);border-color:var(--win)}
+  .flip-hint{margin-top:12px;font-size:12.5px;color:var(--dim);display:flex;align-items:center;gap:7px}
 
-  /* sections */
-  section{padding:44px 0}
-  h2{font-size:28px;letter-spacing:-.3px;margin-bottom:8px}
-  .sub{color:var(--muted);margin-bottom:28px;max-width:640px}
-  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:22px}
-  .card .ic{width:40px;height:40px;border-radius:10px;background:rgba(179,136,255,.14);
-    display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:12px}
-  .card h3{font-size:17px;margin-bottom:6px}
-  .card p{color:var(--muted);font-size:14.5px}
+  kbd{background:#0c0c14;border:1px solid var(--edge2);border-bottom-width:2px;border-radius:6px;
+    padding:2px 7px;font-size:12px;color:var(--lock);white-space:nowrap}
 
-  /* steps */
-  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;counter-reset:s}
-  .step{background:var(--panel2);border:1px solid var(--border);border-radius:var(--radius);padding:22px;position:relative}
-  .step::before{counter-increment:s;content:counter(s);position:absolute;top:-14px;left:20px;
-    width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));
-    color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:15px}
-  .step h3{font-size:16px;margin:8px 0 6px}
-  .step p{color:var(--muted);font-size:14px}
-  kbd{font-family:Consolas,'Courier New',monospace;background:#0f1730;border:1px solid var(--border);
-    border-bottom-width:2px;border-radius:6px;padding:2px 8px;font-size:13px;color:#ffd9a0;white-space:nowrap}
+  /* ---- generic section ---- */
+  .section{padding:56px 0;border-top:1px solid var(--edge)}
+  .section.plain{border-top:none}
+  h2{font-size:clamp(26px,3vw,34px);letter-spacing:-.6px;font-weight:700;line-height:1.1}
+  .sub{color:var(--muted);margin-top:10px;max-width:640px;font-size:16.5px}
+  .lead-row{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap;margin-bottom:30px}
 
-  /* hotkeys table */
-  .keys{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--border);
-    border-radius:var(--radius);overflow:hidden}
-  .keys td{padding:15px 20px;border-bottom:1px solid var(--border);font-size:15px}
+  /* ---- card picker recreation ---- */
+  .picker{background:var(--ink2);border:1px solid var(--edge);border-radius:20px;padding:30px 26px 26px;
+    text-align:center;position:relative;overflow:hidden}
+  .picker::after{content:"Click a card · press 1–5 · Esc to cancel";display:block;color:var(--dim);
+    font-size:13px;margin-top:20px;font-family:"JetBrains Mono",monospace}
+  .picker h3{font-size:22px;letter-spacing:-.3px;margin-bottom:22px}
+  .pcards{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+  .pcard{background:var(--panel);border:1px solid var(--edge2);border-radius:12px;padding:12px;text-align:left;
+    transition:transform .15s,border-color .15s,box-shadow .15s;cursor:default}
+  .pcard:hover{transform:translateY(-4px);border-color:var(--win-line);box-shadow:0 16px 34px rgba(0,0,0,.4)}
+  .pcard.cur{border-color:var(--win)}
+  .pcard .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .pcard .nm{font-size:12.5px;font-weight:600;color:#fff;font-family:"Space Grotesk",sans-serif;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pcard .no{font-size:11px;color:var(--dim);font-family:"JetBrains Mono",monospace}
+  .pmap{position:relative;height:74px;border-radius:7px;background:#0d0d13;overflow:hidden}
+  .pmap .m{position:absolute;top:14%;height:72%;border:1px solid rgba(255,255,255,.14);border-radius:3px}
+  .pmap .w{position:absolute;background:var(--win-soft);border:1px solid var(--win-line);border-radius:2px}
+
+  /* ---- feature grid ---- */
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .feat{background:var(--panel);border:1px solid var(--edge);border-radius:var(--r);padding:22px}
+  .feat .ic{width:40px;height:34px;margin-bottom:14px;border:1px solid var(--edge2);border-radius:7px;
+    background:var(--ink2);display:grid;grid-template-columns:1.4fr 1fr;grid-template-rows:1fr 1fr;gap:2px;padding:4px}
+  .feat .ic i{background:var(--win-soft);border:1px solid var(--win-line);border-radius:2px}
+  .feat .ic i.a{grid-row:1 / span 2}
+  .feat.lock .ic i{background:rgba(255,207,107,.16);border-color:rgba(255,207,107,.5)}
+  .feat h3{font-size:16.5px;margin-bottom:6px;letter-spacing:-.2px}
+  .feat p{color:var(--muted);font-size:14.5px}
+
+  /* ---- modes ---- */
+  .modes{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .mode{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--edge);
+    border-radius:var(--r);padding:20px;position:relative}
+  .mode.def{border-color:var(--win-line)}
+  .mode .badge{position:absolute;top:16px;right:16px;font-size:10.5px;font-weight:600;color:#08121f;
+    background:var(--win);padding:2px 8px;border-radius:99px;font-family:"JetBrains Mono",monospace}
+  .mode h3{font-size:16px;margin-bottom:6px}
+  .mode p{color:var(--muted);font-size:14px}
+
+  /* ---- hotkeys ---- */
+  .keys{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--edge);
+    border-radius:var(--r);overflow:hidden}
+  .keys td{padding:15px 20px;border-bottom:1px solid var(--edge);font-size:15px}
   .keys tr:last-child td{border-bottom:none}
   .keys td:last-child{text-align:right}
-  .note{font-size:13.5px;color:var(--muted);margin-top:12px}
+  .keys .tag{color:var(--win);font-size:12px;font-weight:600;margin-left:8px;
+    background:var(--win-soft);padding:2px 8px;border-radius:99px}
 
-  /* tray menu mockup */
-  .tray-wrap{display:grid;grid-template-columns:1fr 360px;gap:30px;align-items:center}
-  .menu{background:#2b2b3b;border:1px solid rgba(255,255,255,.13);border-radius:9px;padding:6px;
-    box-shadow:0 24px 60px rgba(0,0,0,.55);font-size:13.5px}
-  .menu .mi{padding:7px 14px;border-radius:5px;color:#ececf4;display:flex;justify-content:space-between;gap:24px;cursor:default}
-  .menu .mi:hover{background:rgba(255,255,255,.09)}
-  .menu .mi .k{color:#9aa0b8;font-size:12px}
-  .menu .mi.head{background:rgba(233,69,96,.16)}
-  .menu .sep{height:1px;background:rgba(255,255,255,.10);margin:5px 8px}
-  .menu .mi.dim{color:#9aa0b8;font-size:12.5px;cursor:default}
-  .menu .mi.dim:hover{background:none}
-  .tray-callout{font-size:13px;color:var(--muted);margin-top:14px}
-  @media(max-width:820px){.tray-wrap{grid-template-columns:1fr}}
+  /* ---- steps ---- */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;counter-reset:s}
+  .step{background:var(--panel);border:1px solid var(--edge);border-radius:var(--r);padding:22px}
+  .step .n{counter-increment:s;font-family:"JetBrains Mono",monospace;font-size:13px;color:var(--win);
+    border:1px solid var(--win-line);width:28px;height:28px;border-radius:8px;display:grid;place-items:center;margin-bottom:12px}
+  .step .n::before{content:counter(s)}
+  .step h3{font-size:16px;margin-bottom:6px}
+  .step p{color:var(--muted);font-size:14px}
 
-  /* limitation callout */
-  .callout{background:linear-gradient(135deg,rgba(245,185,125,.10),var(--panel));
-    border:1px solid rgba(245,185,125,.35);border-left:4px solid #f5b97d;border-radius:12px;padding:22px 24px}
-  .callout h3{font-size:18px;margin-bottom:6px;color:#f5b97d}
-  .callout p{color:#d8dcec;font-size:14.5px}
+  /* ---- note callout ---- */
+  .callout{background:linear-gradient(135deg,rgba(255,207,107,.08),var(--panel));
+    border:1px solid rgba(255,207,107,.3);border-left:3px solid var(--lock);border-radius:12px;padding:20px 24px;margin-top:26px}
+  .callout h3{font-size:15.5px;color:var(--lock);margin-bottom:5px}
+  .callout p{color:#d3d3df;font-size:14px}
 
-  footer{border-top:1px solid var(--border);padding:30px 0 50px;color:var(--muted);font-size:13.5px;
-    display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:30px}
+  /* ---- final CTA ---- */
+  .final{text-align:center;background:var(--ink2);border:1px solid var(--edge);border-radius:22px;
+    padding:52px 24px;margin:56px 0 0}
+  .final h2{margin-bottom:10px}
+  .final .sub{margin:0 auto 26px}
+  .final .cta{justify-content:center}
 
-  @media(max-width:820px){
-    header.hero{grid-template-columns:1fr;padding-top:24px}
-    .grid3,.steps{grid-template-columns:1fr}
-    h1{font-size:34px}.nav-links{display:none}
+  footer{border-top:1px solid var(--edge);padding:30px 0 56px;color:var(--dim);font-size:13.5px;
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-top:40px}
+  footer a{color:var(--muted)}
+
+  @media(max-width:860px){
+    .hero{grid-template-columns:1fr;gap:34px;padding-top:30px}
+    .nav-links{display:none}
+    .grid3,.modes,.steps{grid-template-columns:1fr}
+    .pcards{grid-template-columns:repeat(2,1fr)}
+    .lead-row{align-items:flex-start}
+  }
+  @media(prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    .win,.btn,.pcard{transition:none}
   }
 </style>
 </head>
@@ -146,171 +201,244 @@
 <div class="wrap">
 
   <nav>
-    <div class="brand">
-      <div class="logo"><i class="on"></i><i></i><i></i><i></i></div>
-      Fancy Schmancy Zones
-    </div>
+    <div class="brand"><span class="glyph" aria-hidden="true"><i></i><i></i><i></i></span>Fancy Schmancy Zones</div>
     <div class="nav-links">
-      <a href="#how">How it works</a>
+      <a href="#picker">Card picker</a>
+      <a href="#modes">Flip modes</a>
       <a href="#keys">Hotkeys</a>
-      <a href="#install">Install</a>
       <a href="https://github.com/Remagent001/fancy-schmancy-zones">GitHub</a>
+      <a class="btn sm" href="https://github.com/Remagent001/fancy-schmancy-zones/releases/latest">Download</a>
     </div>
   </nav>
 
   <header class="hero">
     <div>
-      <span class="eyebrow">Add-on for PowerToys FancyZones</span>
-      <h1>Lock your window layouts.<br><span class="grad">Flip between them instantly.</span></h1>
-      <p class="lede">Arrange your windows once, <b>lock</b> that arrangement as a named layout,
-        and jump between layouts with a hotkey. The feature FancyZones users have been asking
-        for — finally here, as a tiny tray app.</p>
+      <span class="eyebrow"><span class="dot"></span>Rides on top of PowerToys FancyZones</span>
+      <h1>Lock a window layout.<br><em>Flip back to it instantly.</em></h1>
+      <p class="lede">Arrange your apps the way you like, lock the whole thing as a named layout,
+        then snap every window back with a double-tap of <kbd>Ctrl</kbd> — or fan all your layouts
+        across the screen and pick one. It runs quietly in the tray.</p>
       <div class="cta">
-        <a class="btn" href="https://github.com/Remagent001/fancy-schmancy-zones/releases/latest">⬇ Download for Windows</a>
-        <a class="btn ghost" href="https://github.com/Remagent001/fancy-schmancy-zones">View source</a>
-        <small>Free &amp; open source · no admin · no .NET needed</small>
+        <a class="btn" href="https://github.com/Remagent001/fancy-schmancy-zones/releases/latest">Download for Windows</a>
+        <a class="btn ghost" href="https://github.com/Remagent001/fancy-schmancy-zones">View on GitHub</a>
+        <span class="fine">Free &amp; open source · installs just for you, no admin · nothing else to install</span>
       </div>
     </div>
 
-    <div class="demo" aria-hidden="true">
-      <div class="winbar">
-        <div class="title"><span class="mini"><i class="on"></i><i></i><i></i><i></i></span>Coding layout — locked</div>
-        <div class="ctrls"><i>&#9472;</i><i>&#9633;</i><i class="x">&#10005;</i></div>
+    <div class="flip" aria-label="Interactive demo: switch between window layouts">
+      <div class="screen" id="screen">
+        <div class="mon mon-a"><span class="mon-tag">MONITOR 1</span></div>
+        <div class="mon mon-b"><span class="mon-tag">MONITOR 2</span></div>
+        <div class="win" data-w="0"><span></span></div>
+        <div class="win" data-w="1"><span></span></div>
+        <div class="win" data-w="2"><span></span></div>
+        <div class="win" data-w="3"><span></span></div>
       </div>
-      <div class="zones">
-        <div class="zone tall live"><span class="lbl">Coding</span>Editor</div>
-        <div class="zone">Docs</div>
-        <div class="zone">Terminal</div>
-      </div>
-      <div class="tag-row">
-        <span class="chip active">● Coding</span>
-        <span class="chip">Email</span>
-        <span class="chip">Research</span>
-        <span class="chip">double-tap <b>Ctrl</b> to flip →</span>
-      </div>
+      <div class="tabs" id="tabs" role="tablist"></div>
+      <div class="flip-hint">Click a layout — or in the app, double-tap <kbd>Ctrl</kbd></div>
     </div>
   </header>
 
-  <section id="what">
-    <h2>What it does</h2>
-    <p class="sub">FancyZones still snaps your windows into zones. Fancy Schmancy Zones remembers
-      each arrangement and brings it back — so a whole layout becomes one thing you can toggle to.</p>
-    <div class="grid3">
-      <div class="card">
-        <div class="ic">🔒</div>
-        <h3>Lock a layout</h3>
-        <p>Capture every window exactly where it sits and save it under a name like “Coding” or “Email.”</p>
-      </div>
-      <div class="card">
-        <div class="ic">🔁</div>
-        <h3>Flip between layouts</h3>
-        <p>One hotkey restores a layout — each window jumps back to its spot and comes to the front.</p>
-      </div>
-      <div class="card">
-        <div class="ic">🎛️</div>
-        <h3>Manage from the tray</h3>
-        <p>Left- or right-click the tray icon to pick, rename, update, or delete any layout.</p>
-      </div>
-    </div>
-  </section>
-
-  <section id="how">
-    <h2>How it works</h2>
-    <p class="sub">Three steps. No setup, no config files.</p>
-    <div class="steps">
-      <div class="step">
-        <h3>Arrange your windows</h3>
-        <p>Use FancyZones (Shift-drag into zones) or just place windows where you like them.</p>
-      </div>
-      <div class="step">
-        <h3>Lock it</h3>
-        <p>Press <kbd>Ctrl+Alt+Shift+L</kbd> and give the arrangement a name. Build as many as you want.</p>
-      </div>
-      <div class="step">
-        <h3>Flip anytime</h3>
-        <p><b>Double-tap the Ctrl key</b> to flip to the next layout — windows snap back into place.
-          (Prefer a hotkey? <kbd>Ctrl+Alt+Shift+Q</kbd> works too.)</p>
-      </div>
-    </div>
-  </section>
-
-  <section id="tray">
-    <h2>Everything from the system tray</h2>
-    <p class="sub">No window to keep open — it lives by your clock. Left- or right-click the icon
-      for the full menu: your saved layouts, plus lock, manage, and flip.</p>
-    <div class="tray-wrap">
+  <section class="section" id="picker">
+    <div class="lead-row">
       <div>
-        <div class="grid3" style="grid-template-columns:1fr">
-          <div class="card"><h3>Your layouts, one click away</h3>
-            <p>Every layout you’ve locked shows up by name — click to jump straight to it.</p></div>
-        </div>
-        <p class="tray-callout">This is the actual menu the app shows. The little grid icon sits near
-          your clock (you may need to click the <b>^</b> arrow to see it).</p>
+        <h2>See every layout. Pick one.</h2>
+        <p class="sub">Double-tap <kbd>Ctrl</kbd> and your layouts fan out as cards — each showing a
+          little map of where its windows land across your monitors. Only the windows that are actually
+          open are drawn, so the card previews exactly what you'll get.</p>
       </div>
-      <div class="menu" aria-hidden="true">
-        <div class="mi head">Lock current layout… <span class="k">Ctrl+Alt+Shift+L</span></div>
-        <div class="sep"></div>
-        <div class="mi">01</div>
-        <div class="mi">02</div>
-        <div class="sep"></div>
-        <div class="mi">Manage layouts <span class="k">▸</span></div>
-        <div class="sep"></div>
-        <div class="mi dim">Flip layouts:&nbsp; double-tap Ctrl</div>
-        <div class="mi dim">&nbsp;&nbsp; or next Ctrl+Alt+Shift+Q · prev Ctrl+Alt+Shift+W</div>
-        <div class="mi">How it works</div>
-        <div class="mi">Quit</div>
+    </div>
+
+    <div class="picker" aria-hidden="true">
+      <h3>Pick a layout</h3>
+      <div class="pcards" id="pcards"></div>
+    </div>
+  </section>
+
+  <section class="section" id="modes">
+    <h2>Make double-tap <kbd>Ctrl</kbd> do what you want</h2>
+    <p class="sub" style="margin-bottom:30px">One setting, three behaviors. Pick the one that matches how you work.</p>
+    <div class="modes">
+      <div class="mode">
+        <h3>Cycle in order</h3>
+        <p>Step through your layouts one at a time, top to bottom. The classic.</p>
+      </div>
+      <div class="mode">
+        <h3>Jump to the most recent</h3>
+        <p>Bounce straight back to the layout you were just on — perfect when you're going back and
+          forth between two.</p>
+      </div>
+      <div class="mode def">
+        <span class="badge">DEFAULT</span>
+        <h3>Fan out the cards</h3>
+        <p>Show every layout on screen and click the one you want. The card picker above.</p>
       </div>
     </div>
   </section>
 
-  <section id="keys">
+  <section class="section">
+    <h2>Small app, thoughtful details</h2>
+    <p class="sub" style="margin-bottom:30px">It sweats the parts that make switching layouts feel right.</p>
+    <div class="grid3">
+      <div class="feat lock">
+        <div class="ic" aria-hidden="true"><i class="a"></i><i></i><i></i></div>
+        <h3>Lock any arrangement</h3>
+        <p>Capture every window exactly where it sits and save it under a name like "Coding" or "Email." Build as many as you want.</p>
+      </div>
+      <div class="feat">
+        <div class="ic" aria-hidden="true"><i class="a"></i><i></i><i></i></div>
+        <h3>Right Chrome profile, right spot</h3>
+        <p>Layouts remember which Chrome or Edge profile each window used, and put each one back where it belongs.</p>
+      </div>
+      <div class="feat">
+        <div class="ic" aria-hidden="true"><i class="a"></i><i></i><i></i></div>
+        <h3>A clean switch, every time</h3>
+        <p>Flipping tucks away anything that isn't part of the layout, so the one you switch to is never left half-hidden.</p>
+      </div>
+      <div class="feat">
+        <div class="ic" aria-hidden="true"><i class="a"></i><i></i><i></i></div>
+        <h3>Open a full workspace</h3>
+        <p>Back after a reboot? One click opens the layout's apps that aren't running yet, then arranges them.</p>
+      </div>
+      <div class="feat">
+        <div class="ic" aria-hidden="true"><i class="a"></i><i></i><i></i></div>
+        <h3>Never the wrong window</h3>
+        <p>If a window a layout remembered is closed, its spot is simply left empty — it won't drag a random look-alike on top.</p>
+      </div>
+      <div class="feat">
+        <div class="ic" aria-hidden="true"><i class="a"></i><i></i><i></i></div>
+        <h3>Lives in the tray</h3>
+        <p>No window to keep open. It sits by your clock; everything's one click away in the menu.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="keys">
     <h2>Hotkeys</h2>
-    <p class="sub">They use a low-level keyboard listener, so they keep working even when other
-      utilities have grabbed common shortcuts. Prefer the mouse? Everything’s in the tray menu too.</p>
+    <p class="sub" style="margin-bottom:26px">They use a low-level keyboard listener, so they keep working
+      even when other utilities have grabbed common shortcuts. Prefer the mouse? It's all in the tray menu too.</p>
     <table class="keys">
-      <tr><td><b>Flip to next layout</b> &nbsp;<span style="color:var(--green);font-size:12.5px">easiest</span></td><td><kbd>Double-tap Ctrl</kbd></td></tr>
+      <tr><td>Flip layouts<span class="tag">easiest</span></td><td><kbd>Double-tap Ctrl</kbd></td></tr>
       <tr><td>Flip to next layout</td><td><kbd>Ctrl + Alt + Shift + Q</kbd></td></tr>
       <tr><td>Flip to previous layout</td><td><kbd>Ctrl + Alt + Shift + W</kbd></td></tr>
-      <tr><td>Lock current layout</td><td><kbd>Ctrl + Alt + Shift + L</kbd></td></tr>
+      <tr><td>Lock the current arrangement</td><td><kbd>Ctrl + Alt + Shift + L</kbd></td></tr>
     </table>
-    <p class="note">Your layouts are stored in <code>%APPDATA%\FancySchmancyZones\layouts.json</code>.</p>
-  </section>
-
-  <section id="install">
-    <h2>Install</h2>
-    <p class="sub">A normal one-click installer. Installs just for you (no admin), and the app is
-      self-contained — you don’t need to install anything else.</p>
-    <div class="steps">
-      <div class="step">
-        <h3>Download</h3>
-        <p>Grab <b>FancySchmancyZones-Setup</b> from the <a href="https://github.com/Remagent001/fancy-schmancy-zones/releases/latest">latest release</a>.</p>
-      </div>
-      <div class="step">
-        <h3>Run it</h3>
-        <p>It creates a Start Menu shortcut. You can tick <b>“Start automatically when I sign in.”</b></p>
-      </div>
-      <div class="step">
-        <h3>Look for the tray icon</h3>
-        <p>The little grid icon near your clock (under the <b>^</b> arrow). Click it to begin.</p>
-      </div>
-    </div>
-  </section>
-
-  <section id="limits">
     <div class="callout">
-      <h3>⚠ One current limitation — Windows Virtual Desktops</h3>
-      <p>A layout only captures windows on the <b>desktop you’re currently on</b>. If you spread
-        windows across several Windows virtual desktops, the app won’t see the ones on other desktops.
-        Full multi-desktop support needs undocumented Windows features that change with every update —
-        it’s on the roadmap, but it’s a hard problem. For now, one set of layouts per desktop works great.</p>
+      <h3>One current limit — Windows Virtual Desktops</h3>
+      <p>A layout captures windows on the desktop you're on. Spreading windows across several Windows
+        virtual desktops isn't supported yet — it needs undocumented Windows internals. One set of
+        layouts per desktop works great in the meantime.</p>
     </div>
   </section>
+
+  <section class="section">
+    <h2>Up and running in a minute</h2>
+    <p class="sub" style="margin-bottom:30px">A normal one-click installer — no admin, nothing else to install.</p>
+    <div class="steps">
+      <div class="step"><div class="n"></div><h3>Download &amp; run</h3>
+        <p>Grab the setup from the <a href="https://github.com/Remagent001/fancy-schmancy-zones/releases/latest">latest release</a>. You can tick "start when I sign in."</p></div>
+      <div class="step"><div class="n"></div><h3>Arrange &amp; lock</h3>
+        <p>Place your windows how you like, press <kbd>Ctrl+Alt+Shift+L</kbd>, and name the layout.</p></div>
+      <div class="step"><div class="n"></div><h3>Flip away</h3>
+        <p>Double-tap <kbd>Ctrl</kbd> to fan out your layouts and pick one. That's the whole loop.</p></div>
+    </div>
+  </section>
+
+  <div class="final">
+    <h2>Give your windows a home.</h2>
+    <p class="sub">Free, open source, and about a megabyte. Works alongside FancyZones — not against it.</p>
+    <div class="cta">
+      <a class="btn" href="https://github.com/Remagent001/fancy-schmancy-zones/releases/latest">Download for Windows</a>
+      <a class="btn ghost" href="https://github.com/Remagent001/fancy-schmancy-zones">Star on GitHub</a>
+    </div>
+  </div>
 
   <footer>
-    <div>Fancy Schmancy Zones · MIT licensed · made with FancyZones, not against it.</div>
+    <div>Fancy Schmancy Zones · MIT licensed · built with FancyZones, not against it.</div>
     <div><a href="https://github.com/Remagent001/fancy-schmancy-zones">github.com/Remagent001/fancy-schmancy-zones</a></div>
   </footer>
 
 </div>
+
+<script>
+  // ---- Hero: a mock two-monitor desktop that rearranges between layouts ----
+  // Each window = {label, left%, top%, width%, height%}. A layout lists up to 4 windows;
+  // unused window slots fade out. Mirrors what the app actually does when you flip.
+  const LAYOUTS = [
+    { name:"Code",     wins:[
+      {l:4,t:9,w:33,h:82,label:"Editor"},
+      {l:39,t:9,w:19,h:39,label:"Docs"},
+      {l:39,t:52,w:19,h:39,label:"Terminal"},
+      {l:63,t:9,w:34,h:82,label:"Chrome"} ] },
+    { name:"Write",    wins:[
+      {l:19,t:9,w:39,h:82,label:"Draft"},
+      {l:63,t:9,w:25,h:82,label:"Notes"} ] },
+    { name:"Research", wins:[
+      {l:4,t:9,w:26,h:82,label:"Search"},
+      {l:32,t:9,w:26,h:82,label:"Article"},
+      {l:63,t:9,w:34,h:82,label:"Reader"} ] },
+    { name:"Meet",     wins:[
+      {l:4,t:9,w:38,h:82,label:"Call"},
+      {l:44,t:9,w:14,h:82,label:"Chat"},
+      {l:63,t:9,w:34,h:82,label:"Notes"} ] },
+  ];
+  const wins = [...document.querySelectorAll('#screen .win')];
+  const tabs = document.getElementById('tabs');
+  let active = 0, timer = null;
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  LAYOUTS.forEach((L, i) => {
+    const b = document.createElement('button');
+    b.textContent = L.name; b.setAttribute('role','tab');
+    b.className = i === 0 ? 'on' : '';
+    b.addEventListener('click', () => { show(i); restart(); });
+    tabs.appendChild(b);
+  });
+
+  function show(i){
+    active = i;
+    const L = LAYOUTS[i];
+    wins.forEach((el, k) => {
+      const w = L.wins[k];
+      if(!w){ el.classList.add('gone'); return; }
+      el.classList.remove('gone');
+      el.style.left = w.l+'%'; el.style.top = w.t+'%';
+      el.style.width = w.w+'%'; el.style.height = w.h+'%';
+      el.querySelector('span').textContent = w.label;
+    });
+    [...tabs.children].forEach((b, k) => b.classList.toggle('on', k === i));
+  }
+  function restart(){ if(timer) clearInterval(timer); if(!reduce) timer = setInterval(next, 3200); }
+  function next(){ show((active + 1) % LAYOUTS.length); }
+
+  show(0); restart();
+  const flip = document.querySelector('.flip');
+  flip.addEventListener('mouseenter', () => { if(timer) clearInterval(timer); });
+  flip.addEventListener('mouseleave', restart);
+
+  // ---- Card-picker section: five little maps, drawn from the same window-rectangle motif ----
+  const CARDS = [
+    { name:"CLI",         cur:true,  mono:[[3,18,7,64],[11,18,6,64],[19,18,6,64],[27,18,7,64],[35,18,6,64]], mb:[] },
+    { name:"188-Salon…",  cur:false, mono:[[6,20,20,58],[28,20,14,58]], mb:[[66,20,28,58]] },
+    { name:"Meta · Glass",cur:false, mono:[[4,18,17,64],[23,18,17,64]], mb:[[64,26,20,44],[70,30,16,40]] },
+    { name:"Review Reply",cur:false, mono:[[10,22,30,54]], mb:[[64,22,30,54]] },
+    { name:"188 Trust",   cur:false, mono:[[6,24,14,50],[22,20,14,58],[38,26,8,46]], mb:[[66,30,20,40]] },
+  ];
+  const pc = document.getElementById('pcards');
+  CARDS.forEach((c, i) => {
+    const rects = [...c.mono, ...c.mb].map(r =>
+      `<span class="w" style="left:${r[0]}%;top:${r[1]}%;width:${r[2]}%;height:${r[3]}%"></span>`).join('');
+    const el = document.createElement('div');
+    el.className = 'pcard' + (c.cur ? ' cur' : '');
+    el.innerHTML =
+      `<div class="top"><span class="nm">${c.name}</span><span class="no">${i+1}</span></div>
+       <div class="pmap">
+         <span class="m" style="left:2%;width:58%"></span>
+         <span class="m" style="left:62%;width:36%"></span>
+         ${rects}
+       </div>`;
+    pc.appendChild(el);
+  });
+</script>
 </body>
 </html>
