@@ -73,6 +73,21 @@
   .cta{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
   .cta .fine{color:var(--dim);font-size:13px;margin-top:14px;flex-basis:100%}
 
+  /* ---- "works with both" compatibility band ---- */
+  .compat{display:flex;align-items:center;gap:16px 22px;flex-wrap:wrap;justify-content:center;
+    border:1px solid var(--edge);border-radius:16px;background:var(--ink2);padding:15px 22px;margin:6px 0 2px}
+  .compat .lbl{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.2px}
+  .compat .badges{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  .cbadge{display:inline-flex;align-items:center;gap:9px;font-size:14px;font-weight:600;
+    color:var(--text);background:var(--panel);border:1px solid var(--edge2);padding:8px 15px;border-radius:99px}
+  .cbadge.soft{color:var(--muted);font-weight:500;background:transparent;border-style:dashed}
+  .cbadge .zi{width:18px;height:15px;border:1px solid var(--win-line);border-radius:3px;display:grid;
+    gap:1.5px;padding:2px;background:var(--win-soft)}
+  .cbadge .zi.fz{grid-template-columns:1.4fr 1fr;grid-template-rows:1fr 1fr}
+  .cbadge .zi.sl{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
+  .cbadge .zi i{background:var(--win);border-radius:1px;opacity:.9}
+  .cbadge .zi.fz i:first-child{grid-row:1 / span 2}
+
   /* ---- the signature: a mock 2-monitor desktop that re-arranges between layouts ---- */
   .flip{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--edge);
     border-radius:20px;padding:16px;box-shadow:0 40px 90px rgba(0,0,0,.5)}
@@ -213,11 +228,12 @@
 
   <header class="hero">
     <div>
-      <span class="eyebrow"><span class="dot"></span>Rides on top of PowerToys FancyZones</span>
+      <span class="eyebrow"><span class="dot"></span>Pairs with PowerToys FancyZones + Windows Snap Layouts</span>
       <h1>Lock a window layout.<br><em>Flip back to it instantly.</em></h1>
-      <p class="lede">Arrange your apps the way you like, lock the whole thing as a named layout,
-        then snap every window back with a double-tap of <kbd>Ctrl</kbd> — or fan all your layouts
-        across the screen and pick one. It runs quietly in the tray.</p>
+      <p class="lede">Arrange your apps however you like — with <b>PowerToys FancyZones</b>,
+        <b>Windows Snap Layouts</b>, or a plain drag — then lock the whole thing as a named layout.
+        Snap it all back with a double-tap of <kbd>Ctrl</kbd>, or fan your layouts across the screen
+        and pick one. It rides quietly in the tray.</p>
       <div class="cta">
         <a class="btn" href="https://github.com/ImperaBusinessServices/fancy-schmancy-zones/releases/latest">Download for Windows</a>
         <a class="btn ghost" href="https://github.com/ImperaBusinessServices/fancy-schmancy-zones">View on GitHub</a>
@@ -238,6 +254,15 @@
       <div class="flip-hint">Click a layout — or in the app, double-tap <kbd>Ctrl</kbd></div>
     </div>
   </header>
+
+  <div class="compat">
+    <span class="lbl">Arrange with whatever you already use —</span>
+    <div class="badges">
+      <span class="cbadge"><span class="zi fz" aria-hidden="true"><i></i><i></i><i></i></span>PowerToys FancyZones</span>
+      <span class="cbadge"><span class="zi sl" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Windows Snap Layouts</span>
+      <span class="cbadge soft">or just drag by hand</span>
+    </div>
+  </div>
 
   <section class="section" id="picker">
     <div class="lead-row">
@@ -346,7 +371,7 @@
 
   <div class="final">
     <h2>Give your windows a home.</h2>
-    <p class="sub">Free, open source, and about a megabyte. Works alongside FancyZones — not against it.</p>
+    <p class="sub">Free, open source, and about a megabyte. Works alongside FancyZones and Windows Snap Layouts — not against them.</p>
     <div class="cta">
       <a class="btn" href="https://github.com/ImperaBusinessServices/fancy-schmancy-zones/releases/latest">Download for Windows</a>
       <a class="btn ghost" href="https://github.com/ImperaBusinessServices/fancy-schmancy-zones">Star on GitHub</a>
@@ -354,7 +379,7 @@
   </div>
 
   <footer>
-    <div>Fancy Schmancy Zones · MIT licensed · built with FancyZones, not against it.</div>
+    <div>Fancy Schmancy Zones · MIT licensed · complements FancyZones &amp; Windows Snap Layouts — never replaces them.</div>
     <div><a href="https://github.com/ImperaBusinessServices/fancy-schmancy-zones">github.com/ImperaBusinessServices/fancy-schmancy-zones</a></div>
   </footer>
 
