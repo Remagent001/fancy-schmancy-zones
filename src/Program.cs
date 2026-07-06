@@ -565,18 +565,23 @@ internal sealed class TrayContext : ApplicationContext
             }
         }
 
-        // Pass 3: place and raise the layout's windows — the last word on what's on top.
-        IntPtr primary = IntPtr.Zero;
+        // Pass 3: move every window into place, then raise them BACK-TO-FRONT so the window that was
+        // frontmost when you locked the layout ends up on top — restoring the stacking you saved.
+        // placements are in front-to-back order (that's how they were captured), so raising the LAST
+        // one first and the FIRST one last leaves the front window on top. Doing it this way (instead
+        // of raising front-to-back and then relying on SetForegroundWindow to fight the order back)
+        // makes the result identical on every flip, not "a different window on top each time."
         int restored = 0;
         foreach (var (hwnd, saved) in placements)
         {
             WindowManager.MoveTo(hwnd, saved.Bounds);
-            WindowManager.RaiseToTop(hwnd);
             saved.Hwnd = hwnd;              // refresh handle for this session
-            if (primary == IntPtr.Zero) primary = hwnd;
             restored++;
         }
+        for (int i = placements.Count - 1; i >= 0; i--)
+            WindowManager.RaiseToTop(placements[i].Hwnd);
 
+        IntPtr primary = placements.Count > 0 ? placements[0].Hwnd : IntPtr.Zero;
         if (primary != IntPtr.Zero) WindowManager.Focus(primary);
         return restored;
     }
