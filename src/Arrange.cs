@@ -98,6 +98,14 @@ public static class Arrange
         }
         if (anyRestored) System.Threading.Thread.Sleep(300);   // let them un-park before measuring
 
+        // Windows we can't actually place get dropped BEFORE the grid is sized, so they never
+        // leave an empty cell: ones that closed since the menu was read, and elevated (admin)
+        // windows — we're not allowed to touch those, so one that refused to un-minimize above
+        // is still iconic here and stays put. (A visible admin window can't be detected cheaply;
+        // it just won't move, and the caller reports the honest count.)
+        group = group.Where(w => WindowManager.IsAlive(w.Hwnd) && !IsIconic(w.Hwnd)).ToList();
+        if (group.Count == 0) return 0;
+
         var monitors = Screen.AllScreens.OrderBy(s => s.Bounds.X).ToList();
         var chunks = new List<(Screen Mon, List<LiveWindow> Wins)>();
 
@@ -128,8 +136,8 @@ public static class Arrange
             var rects = Compute(shape, mon.WorkingArea, wins.Count);
             for (int i = 0; i < wins.Count; i++)
             {
-                MoveFlush(wins[i].Hwnd, rects[i]);
-                moved++;
+                if (MoveFlush(wins[i].Hwnd, rects[i]))   // honest count: only what actually moved
+                    moved++;
             }
         }
 
@@ -188,7 +196,7 @@ public static class Arrange
     /// DWMWA_EXTENDED_FRAME_BOUNDS and expands the target by the difference. All placement
     /// still goes through WindowManager.MoveTo (off-screen guard, async, non-blocking).
     /// </summary>
-    public static void MoveFlush(IntPtr hwnd, Rect target)
+    public static bool MoveFlush(IntPtr hwnd, Rect target)
     {
         var t = target;
         if (DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, out RECT f, Marshal.SizeOf<RECT>()) == 0 &&
@@ -199,7 +207,7 @@ public static class Arrange
             int r = Ins(wr.Right - f.Right), b = Ins(wr.Bottom - f.Bottom);
             t = new Rect(target.X - l, target.Y - tp, target.W + l + r, target.H + tp + b);
         }
-        WindowManager.MoveTo(hwnd, t);
+        return WindowManager.MoveTo(hwnd, t);
 
         static int Ins(int v) => Math.Clamp(v, -2, 20);
     }
@@ -207,41 +215,79 @@ public static class Arrange
     // ---- One-level undo ----
 
     private static readonly object _undoLock = new();
-    private static Dictionary<IntPtr, WINDOWPLACEMENT> _undo = new();
+    // Ordered front-first (the order the caller enumerated, which is z-order): undo restores
+    // stacking from it, so it must stay a list, not a dictionary.
+    private static List<(IntPtr Hwnd, WINDOWPLACEMENT Wp)> _undo = new();
 
     public static bool HasUndo { get { lock (_undoLock) return _undo.Count > 0; } }
 
-    /// <summary>Remember where every touched window is BEFORE an arrange — position, and whether
-    /// it was minimized/maximized — so one Undo puts it all back. Each arrange replaces the
-    /// previous snapshot (single-level, same as Window Cascade).</summary>
+    /// <summary>Remember where every touched window is BEFORE an arrange — position, stacking
+    /// order, and whether it was minimized/maximized — so one Undo puts it all back. Pass the
+    /// windows FRONT-FIRST (z-order). Each arrange replaces the previous snapshot (single-level,
+    /// same as Window Cascade).</summary>
     public static void SnapshotForUndo(IEnumerable<IntPtr> hwnds)
     {
-        var snap = new Dictionary<IntPtr, WINDOWPLACEMENT>();
+        var snap = new List<(IntPtr, WINDOWPLACEMENT)>();
+        var seen = new HashSet<IntPtr>();
         foreach (var h in hwnds)
         {
+            if (!seen.Add(h)) continue;
             var wp = new WINDOWPLACEMENT { length = Marshal.SizeOf<WINDOWPLACEMENT>() };
-            if (GetWindowPlacement(h, ref wp)) snap[h] = wp;
+            if (GetWindowPlacement(h, ref wp)) snap.Add((h, wp));
         }
         lock (_undoLock) _undo = snap;
     }
 
-    /// <summary>Put every window from the last snapshot back (skips ones closed since).
-    /// Returns how many were restored. Clears the snapshot.</summary>
+    /// <summary>Put every window from the last snapshot back (skips ones closed since):
+    /// position, size, minimized/maximized state, AND stacking order. Returns how many were
+    /// restored. Clears the snapshot.</summary>
     public static int UndoLast()
     {
-        Dictionary<IntPtr, WINDOWPLACEMENT> snap;
+        List<(IntPtr Hwnd, WINDOWPLACEMENT Wp)> snap;
         lock (_undoLock) { snap = _undo; _undo = new(); }
 
         int n = 0;
         foreach (var (h, saved) in snap)
         {
-            if (!WindowManager.IsAlive(h)) continue;
+            if (ApplyPlacement(h, saved)) n++;
+        }
+
+        // Second pass, same reason as Do(): a window restored ACROSS a display-scaling boundary
+        // gets rescaled by Windows right after it lands, mangling the size we set. Re-applying
+        // once it's back on its home monitor sticks.
+        if (n > 0)
+        {
+            System.Threading.Thread.Sleep(350);
+            foreach (var (h, saved) in snap) ApplyPlacement(h, saved);
+
+            // Restore stacking: raise back-to-front so the window that was frontmost before the
+            // arrange ends up on top again — but never touch ones that were (and should stay)
+            // minimized: RaiseToTop would un-minimize them.
+            for (int i = snap.Count - 1; i >= 0; i--)
+            {
+                var (h, saved) = snap[i];
+                if (WindowManager.IsAlive(h) && saved.showCmd != SW_SHOWMINIMIZED)
+                    WindowManager.RaiseToTop(h);
+            }
+            foreach (var (h, saved) in snap)
+            {
+                if (WindowManager.IsAlive(h) && saved.showCmd != SW_SHOWMINIMIZED)
+                {
+                    WindowManager.Focus(h);
+                    break;
+                }
+            }
+        }
+        return n;
+
+        static bool ApplyPlacement(IntPtr h, WINDOWPLACEMENT saved)
+        {
+            if (!WindowManager.IsAlive(h)) return false;
             var wp = saved;
             wp.length = Marshal.SizeOf<WINDOWPLACEMENT>();
             wp.flags |= WPF_ASYNCWINDOWPLACEMENT;   // never block on a busy app
-            if (SetWindowPlacement(h, ref wp)) n++;
+            return SetWindowPlacement(h, ref wp);
         }
-        return n;
     }
 
     // ---- P/Invoke (private to arranging; flip/lock plumbing in WindowManager is untouched) ----
@@ -273,5 +319,6 @@ public static class Arrange
 
     private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
     private const int SW_RESTORE = 9;
+    private const int SW_SHOWMINIMIZED = 2;
     private const int WPF_ASYNCWINDOWPLACEMENT = 0x0004;
 }

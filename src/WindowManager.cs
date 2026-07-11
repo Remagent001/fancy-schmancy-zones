@@ -94,14 +94,17 @@ public static class WindowManager
     // any synchronous Set* call can deadlock when that app is busy — which showed up as
     // a Windows "app hang." Best-effort and safe beats forceful and frozen.
 
-    public static void MoveTo(IntPtr hwnd, Rect b)
+    /// <summary>Returns whether the move was actually issued and accepted — flip callers ignore
+    /// this (behavior unchanged); the Arrange feature uses it to report an honest count (e.g. an
+    /// elevated/admin window silently refuses moves from a non-admin app).</summary>
+    public static bool MoveTo(IntPtr hwnd, Rect b)
     {
         if (IsIconic(hwnd)) ShowWindowAsync(hwnd, SW_RESTORE);
         // Never move a window to a spot that's off every monitor — stale layout data (e.g. a
         // position captured while the window was minimized/"parked") would otherwise teleport
         // it into the void: still on the taskbar, but impossible to see. Restore + raise only.
-        if (!IsOnScreen(b)) return;
-        SetWindowPos(hwnd, IntPtr.Zero, b.X, b.Y, b.W, b.H, SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+        if (!IsOnScreen(b)) return false;
+        return SetWindowPos(hwnd, IntPtr.Zero, b.X, b.Y, b.W, b.H, SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
     }
 
     /// <summary>Raise a window toward the top without stealing focus.</summary>

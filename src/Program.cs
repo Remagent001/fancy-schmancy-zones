@@ -688,7 +688,7 @@ internal sealed class TrayContext : ApplicationContext
 
         System.Threading.Tasks.Task.Run(() =>
         {
-            int n = 0;
+            int found = 0, moved = 0;
             string label = "windows";
             try
             {
@@ -696,14 +696,16 @@ internal sealed class TrayContext : ApplicationContext
                 var group = process == null
                     ? all
                     : all.Where(w => w.Process.Equals(process, StringComparison.OrdinalIgnoreCase)).ToList();
-                n = group.Count;
+                found = group.Count;
 
-                if (n > 0)
+                if (found > 0)
                 {
                     if (process != null) label = FriendlyAppName(group[0]) + " windows";
 
                     // One-level undo covers everything this arrange touches: the windows being
-                    // arranged AND the ones minimized out of the way.
+                    // arranged AND the ones minimized out of the way. The list is z-ordered
+                    // front-first (that's how GetAltTabWindows enumerates), which Undo relies on
+                    // to restore stacking.
                     Arrange.SnapshotForUndo(
                         (process == null ? group : all).Select(w => w.Hwnd));
 
@@ -713,9 +715,10 @@ internal sealed class TrayContext : ApplicationContext
                         WindowManager.MinimizeAll(all.Where(w => !keep.Contains(w.Hwnd)).Select(w => w.Hwnd));
                     }
 
-                    LogFlip($"arrange: {shape} \"{process ?? "ALL"}\" — {n} window(s)" +
-                            (process != null ? $", minimizing {all.Count - n} other(s)" : ""));
-                    Arrange.Do(shape, group, spreadAcrossMonitors: process != null);
+                    LogFlip($"arrange: {shape} \"{process ?? "ALL"}\" — {found} window(s)" +
+                            (process != null ? $", minimizing {all.Count - found} other(s)" : ""));
+                    moved = Arrange.Do(shape, group, spreadAcrossMonitors: process != null);
+                    if (moved != found) LogFlip($"  arrange placed {moved} of {found} (rest: closed since, or admin windows we can't touch)");
                 }
             }
             catch (Exception ex) { Program.LogCrash(ex); }
@@ -723,11 +726,12 @@ internal sealed class TrayContext : ApplicationContext
 
             try
             {
-                int count = n; string what = label;
+                int f = found, m = moved; string what = label;
                 _sync.BeginInvoke((Action)(() => OsdForm.Flash("Arrange windows",
-                    count == 0
-                        ? "Nothing to arrange — those windows aren't open anymore"
-                        : $"Arranged {count} {what} ✓  —  Undo is in the tray menu")));
+                    f == 0 ? "Nothing to arrange — those windows aren't open anymore"
+                    : m == 0 ? "Couldn't move those windows — they may be admin-only"
+                    : m < f ? $"Arranged {m} of {f} {what} — the rest wouldn't budge (admin windows?)"
+                    : $"Arranged {m} {what} ✓  —  Undo is in the tray menu")));
             }
             catch { }
         });
