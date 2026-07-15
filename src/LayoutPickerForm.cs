@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace FancySchmancyZones;
@@ -25,6 +26,31 @@ internal sealed class LayoutPickerForm : Form
     private readonly Label _title;
     private readonly Label _hint;
     private readonly FlowLayoutPanel _flow;
+
+    /// <summary>How much bigger this monitor draws things than a 100% one (2.0 at 200%).</summary>
+    private readonly float _s;
+
+    private const int MONITOR_DEFAULTTONEAREST = 2, MDT_EFFECTIVE_DPI = 0;
+    [DllImport("user32.dll")] private static extern IntPtr MonitorFromPoint(Point pt, int flags);
+    [DllImport("shcore.dll")] private static extern int GetDpiForMonitor(IntPtr mon, int type, out uint dpiX, out uint dpiY);
+
+    /// <summary>The scaling of the monitor the picker is opening on. The overlay's title and hint
+    /// are point-sized, so Windows already draws those bigger on a scaled-up display — but the
+    /// cards are laid out in raw pixels, so without this they stay physically half-size next to
+    /// their own heading on a 200% screen (Keith, looking at exactly that: "this text is so
+    /// small"). Everything the cards draw is multiplied by this, so the whole picker grows
+    /// together.</summary>
+    private static float DpiScaleFor(Screen screen)
+    {
+        try
+        {
+            var mon = MonitorFromPoint(new Point(screen.Bounds.Left + 1, screen.Bounds.Top + 1), MONITOR_DEFAULTTONEAREST);
+            if (GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, out uint dpiX, out _) == 0 && dpiX > 0)
+                return dpiX / 96f;
+        }
+        catch { /* shcore is Windows 8.1+; on anything older 100% is the right answer anyway */ }
+        return 1f;
+    }
 
     /// <summary>One card's data: the layout name and the bounds of the windows that are actually
     /// open right now (closed ones are left out so the card previews what a flip would really do).</summary>
@@ -53,6 +79,11 @@ internal sealed class LayoutPickerForm : Form
         _count = cards.Count;
 
         var screen = Screen.FromPoint(Cursor.Position);
+        _s = DpiScaleFor(screen);
+
+        // We scale the cards ourselves against the monitor we're opening on (_s). Say so, so a
+        // future AutoScaleDimensions can't quietly scale them a second time on top.
+        AutoScaleMode = AutoScaleMode.None;
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
         Bounds = screen.Bounds;
@@ -93,7 +124,7 @@ internal sealed class LayoutPickerForm : Form
         for (int i = 0; i < cards.Count; i++)
         {
             int idx = i;
-            var card = new Card(cards[i].Name, cards[i].OpenWindows, i + 1, i == currentIndex);
+            var card = new Card(cards[i].Name, cards[i].OpenWindows, i + 1, i == currentIndex, _s);
             card.Click += (_, _) => Pick(idx);
             _flow.Controls.Add(card);
         }
@@ -154,16 +185,17 @@ internal sealed class LayoutPickerForm : Form
     private void LayoutContents()
     {
         int availW = ClientSize.Width, availH = ClientSize.Height;
-        _flow.MaximumSize = new Size(availW - 120, 0);   // wrap by width only; never clip vertically
+        int gap = (int)(10 * _s), side = (int)(120 * _s);        // scaled with the cards they space
+        _flow.MaximumSize = new Size(availW - side, 0);   // wrap by width only; never clip vertically
         var flowSize = _flow.PreferredSize;
         _flow.Size = flowSize;
 
-        int blockH = _title.Height + 10 + flowSize.Height + 10 + _hint.Height;
-        int top = Math.Max(24, (availH - blockH) / 2);
+        int blockH = _title.Height + gap + flowSize.Height + gap + _hint.Height;
+        int top = Math.Max((int)(24 * _s), (availH - blockH) / 2);
 
         _title.Location = new Point((availW - _title.Width) / 2, top);
-        _flow.Location = new Point(Math.Max(0, (availW - flowSize.Width) / 2), _title.Bottom + 10);
-        _hint.Location = new Point((availW - _hint.Width) / 2, _flow.Bottom + 10);
+        _flow.Location = new Point(Math.Max(0, (availW - flowSize.Width) / 2), _title.Bottom + gap);
+        _hint.Location = new Point((availW - _hint.Width) / 2, _flow.Bottom + gap);
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -192,14 +224,16 @@ internal sealed class LayoutPickerForm : Form
         private readonly bool _isCurrent;
         private bool _hover;
 
-        public Card(string name, IReadOnlyList<Rect> openWindows, int number, bool isCurrent)
+        public Card(string name, IReadOnlyList<Rect> openWindows, int number, bool isCurrent, float s)
         {
             _name = name;
             _openWindows = openWindows;
             _number = number;
             _isCurrent = isCurrent;
-            Size = new Size(300, 210);
-            Margin = new Padding(14);
+            // The 300x210 design, grown to this monitor. OnPaint derives its own k from the result,
+            // so the art, the name, and the number all stay in proportion at any scaling.
+            Size = new Size((int)(300 * s), (int)(210 * s));
+            Margin = new Padding((int)(14 * s));
             DoubleBuffered = true;
             Cursor = Cursors.Hand;
             BackColor = Color.FromArgb(34, 34, 40);
