@@ -265,6 +265,11 @@ internal sealed class TrayContext : ApplicationContext
             menu.Items.Add(manage);
         }
 
+        // Visible from the moment something is deleted until it's restored or replaced — even if
+        // the LAST layout was deleted (the branch above only shows "(no locked layouts yet)").
+        if (_lastDeleted != null)
+            menu.Items.Add($"Undo delete \"{_lastDeleted.Name}\"", null, (_, _) => UndoDelete());
+
         menu.Items.Add(new ToolStripSeparator());
         string modeHint = _state.Settings.DoubleTapCtrl switch
         {
@@ -470,18 +475,33 @@ internal sealed class TrayContext : ApplicationContext
     private void LockCurrent()
     {
         var name = NameForm.Ask("Lock layout", "Name this layout (e.g. \"Coding\", \"Email\"):");
+        int existing = -1;
+        while (name != null)
+        {
+            existing = _state.Layouts.FindIndex(l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (existing < 0) break;
+            // Re-locking onto an existing name replaces that layout — but only with the user's
+            // eyes open. The picker's "save a NEW layout" lands here too, and silently eating a
+            // months-old layout because a name got reused is unrecoverable (review finding).
+            var replace = MessageBox.Show(
+                $"You already have a layout named \"{name}\".\n\nReplace it with your current windows?",
+                "Lock layout", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (replace == DialogResult.Yes) break;
+            name = NameForm.Ask("Lock layout", "Pick a different name:", name);
+        }
         if (name == null) return;
 
-        // Re-locking onto an existing name = replace/update it.
-        int existing = _state.Layouts.FindIndex(l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
         var layout = CaptureCurrent(name, _state.Settings.MatchBrowserProfiles, out string? profileWarning);
-
         if (existing >= 0) { _state.Layouts[existing] = layout; _currentIndex = existing; }
         else { _state.Layouts.Add(layout); _currentIndex = _state.Layouts.Count - 1; }
 
         _state.Save();
         RebuildMenu();
-        Notify("Layout locked", profileWarning ?? $"\"{name}\" — {layout.Windows.Count} window(s).");
+        // Confirm ON SCREEN — Windows balloons don't reliably show on Keith's PC (same lesson as
+        // UpdateLayout), so saving a layout must never look like it did nothing.
+        int n = layout.Windows.Count;
+        OsdForm.Flash(name, $"{(existing >= 0 ? "Updated" : "Locked")} ✓  —  saved your {n} open window{(n == 1 ? "" : "s")}");
+        if (profileWarning != null) Notify("Layout locked", profileWarning);
     }
 
     private void UpdateLayout(int idx)
@@ -642,21 +662,48 @@ internal sealed class TrayContext : ApplicationContext
         if (primary != IntPtr.Zero) WindowManager.Focus(primary);
 
         // Pass 4: switch each placed browser window back to the TAB the layout was saved on (its
-        // saved title). Runs AFTER all the moving/raising so the arrangement appears instantly and
-        // the (~10ms-per-window) tab-strip walks can't slow it down. A window already showing the
-        // saved page is skipped; a saved tab that's been closed is simply not found and the window
-        // is left on whatever it's showing — we only ever re-select, never open pages.
+        // saved title). A window already showing the saved page is skipped; a saved tab that's
+        // been closed is simply not found and the window is left on whatever it's showing — we
+        // only ever re-select, never open pages.
+        //
+        // This runs on its OWN task, deliberately outside the flip that holds _activating: the
+        // UIA calls are synchronous cross-process calls into each browser, and one busy browser
+        // must never leave every flip saying "Busy…" (passes 1–3 keep the app's every-cross-
+        // process-call-is-non-blocking rule; this pass can't, so it steps out of the way instead).
+        // Each flip bumps the generation, so a straggling older restore stops rather than
+        // switching tabs out from under the layout the user flipped to next. Windows whose UI
+        // thread is hung are skipped entirely — a UIA call into one blocks for seconds.
         if (restoreTabs)
-            foreach (var (hwnd, saved) in placements)
+        {
+            var browsers = placements
+                .Where(p => BrowserTabs.CanRestore(p.Saved.Process))
+                .Select(p => (p.Hwnd, p.Saved.Title, Now: live.FirstOrDefault(x => x.Hwnd == p.Hwnd)?.Title))
+                .Where(p => p.Now != p.Title)   // already on the saved tab -> nothing to do
+                .ToList();
+            if (browsers.Count > 0)
             {
-                if (!BrowserTabs.CanRestore(saved.Process)) continue;
-                var w = live.FirstOrDefault(x => x.Hwnd == hwnd);
-                if (w != null && w.Title == saved.Title) continue;   // already on the saved tab
-                BrowserTabs.TrySelectTab(hwnd, saved.Title, out string detail);
-                LogFlip($"  tab restore for \"{saved.Title}\": {detail}");
+                int gen = System.Threading.Interlocked.Increment(ref _tabRestoreGen);
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    foreach (var (hwnd, savedTitle, _) in browsers)
+                    {
+                        if (System.Threading.Volatile.Read(ref _tabRestoreGen) != gen) return;  // a newer flip took over
+                        try
+                        {
+                            if (WindowManager.IsHung(hwnd)) { LogFlip($"  tab restore for \"{savedTitle}\": window not responding — skipped"); continue; }
+                            BrowserTabs.TrySelectTab(hwnd, savedTitle, out string detail);
+                            LogFlip($"  tab restore for \"{savedTitle}\": {detail}");
+                        }
+                        catch (Exception ex) { Program.LogCrash(ex); }
+                    }
+                });
             }
+        }
         return restored;
     }
+
+    // Bumped once per flip that restores tabs; see the pass 4 comment in ShuffleToLayout.
+    private static int _tabRestoreGen;
 
     /// <summary>Append a line to flip.log so "a window stayed on top" reports can be diagnosed
     /// from facts instead of guesses. Self-truncates so it can never grow unbounded.</summary>
@@ -1206,6 +1253,15 @@ internal sealed class TrayContext : ApplicationContext
         var oldName = _state.Layouts[idx].Name;
         var name = NameForm.Ask("Rename layout", "New name:", oldName);
         if (name == null) return;
+        // Never let two layouts share a name: the picker's right-click actions find their layout
+        // BY name, so a duplicate would point them all at the first one — delete/update could hit
+        // the wrong layout (review finding). LockCurrent dedupes; this closes the only other door.
+        int other = _state.Layouts.FindIndex(l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (other >= 0 && other != idx)
+        {
+            OsdForm.Flash("Rename layout", $"There's already a layout named \"{name}\" — pick a different name");
+            return;
+        }
         _state.Layouts[idx].Name = name;
         int ri = _recentOrder.IndexOf(oldName);   // keep most-recent history pointing at this layout
         if (ri >= 0) _recentOrder[ri] = name;
@@ -1213,8 +1269,15 @@ internal sealed class TrayContext : ApplicationContext
         RebuildMenu();
     }
 
+    // One-level delete undo, like "Undo last arrange". A picker delete is one misclick away and a
+    // layout can hold months of tweaks, so it gets a safety net (review finding).
+    private LockedLayout? _lastDeleted;
+    private int _lastDeletedIndex;
+
     private void Delete(int idx)
     {
+        _lastDeleted = _state.Layouts[idx];
+        _lastDeletedIndex = idx;
         _state.Layouts.RemoveAt(idx);
         // Keep _currentIndex pointing at the SAME layout (it shifts down if we removed one above it).
         if (idx == _currentIndex) _currentIndex = -1;
@@ -1222,6 +1285,25 @@ internal sealed class TrayContext : ApplicationContext
         if (_currentIndex >= _state.Layouts.Count) _currentIndex = -1;   // backstop
         _state.Save();
         RebuildMenu();
+        // Say WHICH layout just went away (on screen — balloons don't show on Keith's PC), and
+        // that there's a way back.
+        OsdForm.Flash("Layout deleted", $"\"{_lastDeleted.Name}\"  —  Undo delete is in the tray menu");
+    }
+
+    private void UndoDelete()
+    {
+        var l = _lastDeleted;
+        if (l == null) return;
+        _lastDeleted = null;
+        // If the name was reused since the delete (rare), keep both — names must stay unique.
+        if (_state.Layouts.Any(x => x.Name.Equals(l.Name, StringComparison.OrdinalIgnoreCase)))
+            l.Name += " (restored)";
+        int at = Math.Clamp(_lastDeletedIndex, 0, _state.Layouts.Count);
+        _state.Layouts.Insert(at, l);
+        if (_currentIndex >= at) _currentIndex++;   // the insert shifted everything below it down
+        _state.Save();
+        RebuildMenu();
+        OsdForm.Flash(l.Name, "Restored ✓");
     }
 
     private void ShowHelp()
@@ -1256,9 +1338,10 @@ internal sealed class TrayContext : ApplicationContext
             "aren't already running, then arranges everything — handy after a reboot.\n\n" +
             "BROWSER TABS:\n" +
             "A layout remembers which tab each browser window was on when you locked it. Switching " +
-            "to the layout switches each window back to that tab (if it's still open — a closed tab " +
-            "is never reopened). Turn this off under Settings → \"Switch browser windows back to " +
-            "their saved tab.\"\n\n" +
+            "to the layout brings each window back to that tab when it can still be found by its " +
+            "saved title. A closed tab is never reopened, and a tab whose title has changed a lot " +
+            "since (unread counts, live pages) may stay where it is. Turn this off under Settings → " +
+            "\"Switch browser windows back to their saved tab.\"\n\n" +
             "CHROME/EDGE PROFILES:\n" +
             "Layouts remember which browser profile each window used and reopen that same one. " +
             "This is read from the little profile button in the browser's toolbar, so if two " +

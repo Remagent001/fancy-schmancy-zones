@@ -10,10 +10,16 @@
   overlay vanishing with it.
 - **Layouts now bring back the browser tab you saved, not just the window.** A layout has always
   remembered each browser window's page (its title); switching to a layout now also switches each
-  browser window back to that tab if it's still open — so the layout looks the way it did when you
-  locked it, even if you've been off browsing other tabs since. A closed tab is never reopened, and
-  nothing is clicked inside your pages. Works for Chrome, Edge, and Brave (Firefox best-effort).
-  Turn it off under Settings → "Switch browser windows back to their saved tab."
+  browser window back to that tab when it can still be found by its saved title — so you land on
+  the page you locked, even if you've been off browsing other tabs since. A closed tab is never
+  reopened, a tab whose title has changed a lot since may stay where it is, and nothing is clicked
+  inside your pages. Works for Chrome, Edge, and Brave (Firefox best-effort). Turn it off under
+  Settings → "Switch browser windows back to their saved tab."
+- **Safety nets from an adversarial review of the two features above:** deleting a layout now
+  flashes which one was deleted and adds an **"Undo delete"** entry to the tray menu; saving onto
+  an existing layout name asks before replacing it; renaming can't create two layouts with the
+  same name anymore (which could have made the picker act on the wrong one); and one slow or
+  frozen browser can no longer make layout switching report "Busy…".
 
 ## 0.10.1 — 2026-07-04
 

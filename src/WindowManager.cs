@@ -123,6 +123,10 @@ public static class WindowManager
 
     public static bool IsAlive(IntPtr hwnd) => hwnd != IntPtr.Zero && IsWindow(hwnd);
 
+    /// <summary>True if Windows considers this window "Not Responding" (its UI thread is stuck).
+    /// Never make a synchronous call (e.g. UI Automation) into a window like that — it blocks.</summary>
+    public static bool IsHung(IntPtr hwnd) => IsHungAppWindow(hwnd);
+
     /// <summary>Minimize a window (e.g. one that isn't part of the layout being switched to).</summary>
     public static void Minimize(IntPtr hwnd) => ShowWindowAsync(hwnd, SW_MINIMIZE);
 
@@ -290,6 +294,7 @@ public static class WindowManager
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool IsHungAppWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern int GetWindowTextLength(IntPtr hwnd);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hwnd, StringBuilder sb, int max);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
