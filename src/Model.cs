@@ -66,6 +66,11 @@ public sealed class AppSettings
     // What a double-tap of Ctrl does. Defaults to showing the on-screen card picker.
     public FlipMode DoubleTapCtrl { get; set; } = FlipMode.PickCards;
 
+    // When on, switching to a layout also switches each of its browser windows back to the TAB it
+    // was saved on (a window's saved title IS its tab at save time; we re-select that tab in the
+    // window's tab strip if it's still open). Off = windows are placed but tabs are left alone.
+    public bool RestoreBrowserTab { get; set; } = true;
+
     // When on, a layout's Chrome/Edge window that can't be found by its exact page is filled with
     // any other open window of the SAME browser profile. Browser windows change title as you switch
     // tabs and same-profile windows can't be told apart, so this places your browser windows even

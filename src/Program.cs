@@ -314,6 +314,13 @@ internal sealed class TrayContext : ApplicationContext
         looseBrowserItem.Click += (_, _) => ToggleLooseBrowserMatch();
         settings.DropDownItems.Add(looseBrowserItem);
 
+        var restoreTabItem = new ToolStripMenuItem("Switch browser windows back to their saved tab")
+        {
+            Checked = _state.Settings.RestoreBrowserTab
+        };
+        restoreTabItem.Click += (_, _) => ToggleRestoreBrowserTab();
+        settings.DropDownItems.Add(restoreTabItem);
+
         var minimizeOthersItem = new ToolStripMenuItem("Minimize other windows when switching layouts")
         {
             Checked = _state.Settings.MinimizeOtherWindows
@@ -399,6 +406,17 @@ internal sealed class TrayContext : ApplicationContext
             _state.Settings.LooseBrowserMatch
                 ? "Placing browser windows by profile, even if the page changed"
                 : "Browser windows only match their exact saved page");
+    }
+
+    private void ToggleRestoreBrowserTab()
+    {
+        _state.Settings.RestoreBrowserTab = !_state.Settings.RestoreBrowserTab;
+        _state.Save();
+        RebuildMenu();
+        OsdForm.Flash("Browser tabs",
+            _state.Settings.RestoreBrowserTab
+                ? "Switching layouts brings each browser window back to its saved tab"
+                : "Switching layouts leaves browser tabs alone");
     }
 
     private void ToggleMatchBrowserProfiles()
@@ -557,7 +575,7 @@ internal sealed class TrayContext : ApplicationContext
         System.Threading.Tasks.Task.Run(() =>
         {
             int restored = 0;
-            try { restored = ShuffleToLayout(layout, _state.Settings.MatchBrowserProfiles, _state.Settings.MinimizeOtherWindows, _state.Settings.LooseBrowserMatch); }
+            try { restored = ShuffleToLayout(layout, _state.Settings.MatchBrowserProfiles, _state.Settings.MinimizeOtherWindows, _state.Settings.LooseBrowserMatch, _state.Settings.RestoreBrowserTab); }
             catch (Exception ex) { Program.LogCrash(ex); }
             finally { _activating = false; }
 
@@ -579,7 +597,7 @@ internal sealed class TrayContext : ApplicationContext
     }
 
     /// <summary>Move/raise each of the layout's windows. Runs on a background thread.</summary>
-    private static int ShuffleToLayout(LockedLayout layout, bool matchProfiles, bool minimizeOthers, bool looseBrowser)
+    private static int ShuffleToLayout(LockedLayout layout, bool matchProfiles, bool minimizeOthers, bool looseBrowser, bool restoreTabs)
     {
         var live = WindowManager.GetAltTabWindows();
         // Profiles are needed both for profile-aware placement AND for the loose same-profile
@@ -622,6 +640,21 @@ internal sealed class TrayContext : ApplicationContext
 
         IntPtr primary = placements.Count > 0 ? placements[0].Hwnd : IntPtr.Zero;
         if (primary != IntPtr.Zero) WindowManager.Focus(primary);
+
+        // Pass 4: switch each placed browser window back to the TAB the layout was saved on (its
+        // saved title). Runs AFTER all the moving/raising so the arrangement appears instantly and
+        // the (~10ms-per-window) tab-strip walks can't slow it down. A window already showing the
+        // saved page is skipped; a saved tab that's been closed is simply not found and the window
+        // is left on whatever it's showing — we only ever re-select, never open pages.
+        if (restoreTabs)
+            foreach (var (hwnd, saved) in placements)
+            {
+                if (!BrowserTabs.CanRestore(saved.Process)) continue;
+                var w = live.FirstOrDefault(x => x.Hwnd == hwnd);
+                if (w != null && w.Title == saved.Title) continue;   // already on the saved tab
+                BrowserTabs.TrySelectTab(hwnd, saved.Title, out string detail);
+                LogFlip($"  tab restore for \"{saved.Title}\": {detail}");
+            }
         return restored;
     }
 
@@ -901,6 +934,7 @@ internal sealed class TrayContext : ApplicationContext
         bool minimizeOthers = _state.Settings.MinimizeOtherWindows;
         bool launchTerminals = _state.Settings.LaunchTerminalApps;
         bool looseBrowser = _state.Settings.LooseBrowserMatch;
+        bool restoreTabs = _state.Settings.RestoreBrowserTab;
 
         System.Threading.Tasks.Task.Run(() =>
         {
@@ -945,7 +979,7 @@ internal sealed class TrayContext : ApplicationContext
                     }
                 }
 
-                ShuffleToLayout(layout, matchProfiles, minimizeOthers, looseBrowser);
+                ShuffleToLayout(layout, matchProfiles, minimizeOthers, looseBrowser, restoreTabs);
             }
             catch (Exception ex) { Program.LogCrash(ex); }
             finally { _activating = false; }
@@ -1220,6 +1254,11 @@ internal sealed class TrayContext : ApplicationContext
             "REOPENING APPS:\n" +
             "\"Open apps + arrange\" (under Manage layouts) launches any apps in that layout that " +
             "aren't already running, then arranges everything — handy after a reboot.\n\n" +
+            "BROWSER TABS:\n" +
+            "A layout remembers which tab each browser window was on when you locked it. Switching " +
+            "to the layout switches each window back to that tab (if it's still open — a closed tab " +
+            "is never reopened). Turn this off under Settings → \"Switch browser windows back to " +
+            "their saved tab.\"\n\n" +
             "CHROME/EDGE PROFILES:\n" +
             "Layouts remember which browser profile each window used and reopen that same one. " +
             "This is read from the little profile button in the browser's toolbar, so if two " +

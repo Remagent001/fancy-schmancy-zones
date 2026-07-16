@@ -8,6 +8,12 @@
   to **save your current windows as a brand-new layout** without touching the tray menu.
 - The right-click menus match the picker's dark look, and closing one no longer risks the whole
   overlay vanishing with it.
+- **Layouts now bring back the browser tab you saved, not just the window.** A layout has always
+  remembered each browser window's page (its title); switching to a layout now also switches each
+  browser window back to that tab if it's still open — so the layout looks the way it did when you
+  locked it, even if you've been off browsing other tabs since. A closed tab is never reopened, and
+  nothing is clicked inside your pages. Works for Chrome, Edge, and Brave (Firefox best-effort).
+  Turn it off under Settings → "Switch browser windows back to their saved tab."
 
 ## 0.10.1 — 2026-07-04
 
